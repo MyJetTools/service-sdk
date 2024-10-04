@@ -106,7 +106,7 @@ pub fn auto_generate_settings_traits(_input: TokenStream) -> TokenStream {
     quote::quote! {
     #[async_trait]
     impl MyTelemetrySettings for SettingsReader {
-        async fn get_telemetry_url(&self) -> String {
+        async fn get_telemetry_url(&self) -> Option<String> {
             let read_access = self.settings.read().await;
             read_access.my_telemetry.clone()
         }
