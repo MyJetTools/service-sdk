@@ -1,6 +1,6 @@
 [package]
 name = "service-sdk"
-version = "0.2.6"
+version = "0.3.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -70,7 +70,7 @@ rust-extensions = { tag = "0.1.4", git = "https://github.com/MyJetTools/rust-ext
     "base64",
 ] }
 
-is-alive-middleware = { tag = "0.7.1", git = "https://github.com/MyJetTools/is-alive-middleware.git" }
+is-alive-middleware = { tag = "0.8.0", git = "https://github.com/MyJetTools/is-alive-middleware.git" }
 my-telemetry = { tag = "1.1.1", git = "https://github.com/MyJetTools/my-telemetry.git", features = [
     "my-telemetry-writer",
 ] }
@@ -84,7 +84,7 @@ my-service-bus = { optional = true, git = "https://github.com/MyJetTools/my-serv
 my-logger = { tag = "1.1.0", git = "https://github.com/MyJetTools/my-logger.git", features = [
     "my-seq-logger",
 ] }
-my-http-server = { tag = "0.7.1", git = "https://github.com/MyJetTools/my-http-server", features = [
+my-http-server = { tag = "0.8.0", git = "https://github.com/MyJetTools/my-http-server", features = [
     "controllers",
     "macros",
     "with-telemetry",

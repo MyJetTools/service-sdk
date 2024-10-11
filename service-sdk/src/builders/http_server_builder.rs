@@ -16,7 +16,7 @@ use my_http_server::controllers::{
 use my_http_server::{HttpServerMiddleware, MyHttpServer};
 use rust_extensions::StrOrString;
 
-use crate::MetricsMiddleware;
+use crate::{MetricsMiddleware, MetricsTechMiddleware};
 
 pub struct HttpServerBuilder {
     listen_address: SocketAddr,
@@ -96,7 +96,14 @@ impl HttpServerBuilder {
 
     pub fn register_post_action(
         &mut self,
-        action: impl PostAction + Clone + HandleHttpRequest + GetDescription + Clone + Send + Sync + 'static,
+        action: impl PostAction
+            + Clone
+            + HandleHttpRequest
+            + GetDescription
+            + Clone
+            + Send
+            + Sync
+            + 'static,
     ) -> &mut Self {
         if self.controllers.is_none() {
             self.controllers = Some(ControllersMiddleware::new(None, None));
@@ -141,7 +148,8 @@ impl HttpServerBuilder {
 
         let is_alive = IsAliveMiddleware::new(self.app_name.clone(), self.app_version.clone());
         my_http_server.add_middleware(Arc::new(is_alive));
-        my_http_server.add_middleware(Arc::new(MetricsMiddleware{}));
+        my_http_server.add_middleware(Arc::new(MetricsMiddleware));
+        my_http_server.add_tech_middleware(Arc::new(MetricsTechMiddleware));
 
         for middleware in self.custom_middlewares.drain(..) {
             my_http_server.add_middleware(middleware);

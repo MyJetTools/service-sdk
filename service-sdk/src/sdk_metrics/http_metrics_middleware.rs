@@ -1,12 +1,11 @@
 use async_trait::async_trait;
-use my_http_server::{HttpContext, HttpFailResult, HttpOkResult, HttpOutput, HttpServerMiddleware, HttpServerRequestFlow};
-use stopwatch::Stopwatch;
+use my_http_server::*;
 
 pub struct MetricsMiddleware;
 
 impl MetricsMiddleware {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 }
 
@@ -15,8 +14,7 @@ impl HttpServerMiddleware for MetricsMiddleware {
     async fn handle_request(
         &self,
         ctx: &mut HttpContext,
-        get_next: &mut HttpServerRequestFlow,
-    ) -> Result<HttpOkResult, HttpFailResult> {
+    ) -> Option<Result<HttpOkResult, HttpFailResult>> {
         let path = ctx.request.http_path.as_str().to_string();
 
         if path == "/metrics" {
@@ -26,16 +24,19 @@ impl HttpServerMiddleware for MetricsMiddleware {
             match report {
                 Ok(report) => {
                     let response = HttpOutput::as_text(report).into_ok_result(false);
-                    return response;
+                    return Some(response);
                 }
                 Err(err) => {
                     let response =
                         HttpOutput::as_text(err.to_string()).into_fail_result(502, false);
-                    return response;
+                    return Some(response);
                 }
             }
         }
 
+        None
+
+        /*
         let mut sw = Stopwatch::start_new();
         let result = get_next.next(ctx).await;
         sw.stop();
@@ -76,5 +77,6 @@ impl HttpServerMiddleware for MetricsMiddleware {
         metrics::counter!("http_request_count", common_labels).increment(1);
 
         return result;
+         */
     }
 }
