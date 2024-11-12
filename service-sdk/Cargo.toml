@@ -90,7 +90,7 @@ my-http-server = { tag = "0.8.1", git = "https://github.com/MyJetTools/my-http-s
     "with-telemetry",
 ] }
 
-my-postgres = { tag = "0.5.3", git = "https://github.com/MyJetTools/my-postgres.git", features = [
+my-postgres = { tag = "0.5.4", git = "https://github.com/MyJetTools/my-postgres.git", features = [
     "with-telemetry",
     "with-tls",
     "macros",
