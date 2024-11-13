@@ -78,6 +78,14 @@ pub fn auto_generate_settings_traits(_input: TokenStream) -> TokenStream {
             let read_access = self.settings.read().await;
             read_access.my_no_sql_writer.clone()
         }
+
+        async fn get_app_name(&self) -> &'static str {
+            env!("CARGO_PKG_NAME")
+        }
+
+        async fn get_app_version(&self) -> &'static str {
+            env!("CARGO_PKG_VERSION")
+        }
     }
         });
 
