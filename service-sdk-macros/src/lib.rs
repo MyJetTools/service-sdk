@@ -72,22 +72,22 @@ pub fn auto_generate_settings_traits(_input: TokenStream) -> TokenStream {
 
     #[cfg(feature = "no-sql-writer")]
     auto_generates.push(quote::quote! {
-            #[async_trait]
+    #[async_trait]
     impl MyNoSqlWriterSettings for SettingsReader {
         async fn get_url(&self) -> String {
             let read_access = self.settings.read().await;
             read_access.my_no_sql_writer.clone()
         }
 
-        async fn get_app_name(&self) -> &'static str {
+         fn get_app_name(&self) -> &'static str {
             env!("CARGO_PKG_NAME")
         }
 
-        async fn get_app_version(&self) -> &'static str {
+         fn get_app_version(&self) -> &'static str {
             env!("CARGO_PKG_VERSION")
         }
-    }
-        });
+      }
+    });
 
     #[cfg(feature = "no-sql-reader")]
     auto_generates.push(quote::quote!(
