@@ -62,7 +62,7 @@ impl ServiceContext {
             .populate_app_and_version(app_name.clone(), app_version.clone())
             .await;
 
-        SeqLogger::enable_from_connection_string(settings_reader.clone());
+        SeqLogger::enable_from_connection_string(settings_reader.clone()).await;
 
         #[cfg(feature = "my-nosql-data-reader-sdk")]
         let my_no_sql_connection = Arc::new(MyNoSqlTcpConnection::new(
