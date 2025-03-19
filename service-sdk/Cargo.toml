@@ -45,6 +45,8 @@ full = [
 ]
 my-service-bus = ["dep:my-service-bus", "service-sdk-macros/my-service-bus"]
 
+websockets = ["my-http-server/websocket"]
+
 
 grpc = ["dep:futures-core", "dep:my-grpc-extensions", "service-sdk-macros/grpc"]
 
