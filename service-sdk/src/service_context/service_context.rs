@@ -49,7 +49,7 @@ impl ServiceContext {
     pub async fn new(settings_reader: service_sdk_macros::generate_settings_signature!()) -> Self {
         metrics_prometheus::install();
 
-        #[cfg(feature = "grpc-with-tls")]
+        #[cfg(feature = "with-tls")]
         rustls::crypto::ring::default_provider()
             .install_default()
             .expect("Failed to install rustls crypto provider");

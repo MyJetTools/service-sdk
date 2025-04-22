@@ -50,7 +50,7 @@ websockets = ["my-http-server/websocket"]
 
 grpc = ["dep:futures-core", "dep:my-grpc-extensions", "service-sdk-macros/grpc"]
 
-grpc-with-tls = ["my-grpc-extensions?/with-tls", "rustls"]
+with-tls = ["my-grpc-extensions?/with-tls", "rustls"]
 
 postgres = [
     "dep:my-postgres",

@@ -1,11 +1,11 @@
 mod builders;
 mod common;
-mod service_context;
 mod sdk_metrics;
+mod service_context;
 
-pub use sdk_metrics::*;
 pub use builders::*;
 pub use common::*;
+pub use sdk_metrics::*;
 pub use service_context::*;
 
 pub extern crate my_http_server;
@@ -17,7 +17,6 @@ pub extern crate my_logger;
 pub extern crate my_settings_reader;
 pub extern crate rust_extensions;
 pub extern crate serde_yaml;
-
 
 pub extern crate serde;
 
