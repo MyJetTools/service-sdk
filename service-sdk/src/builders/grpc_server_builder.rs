@@ -4,7 +4,7 @@ use std::{
 };
 
 use my_grpc_extensions::tonic::{
-    body::BoxBody,
+    body::Body,
     codegen::{http::Request, Service},
     server::NamedService,
     transport::{server::Router, Server},
@@ -43,12 +43,13 @@ impl GrpcServerBuilder {
     pub fn add_grpc_service<S>(&mut self, svc: S)
     where
         S: Service<
-                Request<BoxBody>,
-                Response = my_grpc_extensions::hyper::Response<BoxBody>,
+                Request<Body>,
+                Response = my_grpc_extensions::hyper::Response<Body>,
                 Error = Infallible,
             > + NamedService
             + Clone
             + Send
+            + Sync
             + 'static,
         S::Future: Send + 'static,
     {
