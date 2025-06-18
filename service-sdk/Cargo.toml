@@ -63,7 +63,7 @@ signal-r = ["my-http-server/signal-r"]
 
 [dependencies]
 serde = { version = "*" }
-tokio = { version = "*", features = ["full"] }
+tokio = { version = "*", features = ["rt", "rt-multi-thread", "fs"] }
 async-trait = "*"
 service-sdk-macros = { path = "../service-sdk-macros" }
 
