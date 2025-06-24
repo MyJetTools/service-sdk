@@ -53,17 +53,21 @@ impl GrpcServerBuilder {
             + 'static,
         S::Future: Send + 'static,
     {
-        if self.server.is_some() {
-            panic!("Only one service can be added to the server");
-        }
+        match self.server.take() {
+            Some(server) => {
+                let server = server.add_service(svc);
+                self.server = Some(server);
+            }
+            None => {
+                let layer = tower::ServiceBuilder::new()
+                    .layer(GrpcMetricsMiddlewareLayer::default())
+                    .into_inner();
 
-        let layer = tower::ServiceBuilder::new()
-            .layer(GrpcMetricsMiddlewareLayer::default())
-            .into_inner();
+                let server = Server::builder().layer(layer).add_service(svc);
 
-        let server = Server::builder().layer(layer).add_service(svc);
-
-        self.server = Some(server);
+                self.server = Some(server);
+            }
+        };
     }
 
     pub fn add_grpc_services(
