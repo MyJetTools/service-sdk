@@ -204,8 +204,15 @@ impl ServiceContext {
 
     #[cfg(feature = "grpc")]
     pub fn configure_grpc_server(&mut self, config: impl Fn(&mut GrpcServerBuilder)) {
-        let mut grpc_server_builder = GrpcServerBuilder::new();
-        config(&mut grpc_server_builder);
-        self.grpc_server_builder = Some(grpc_server_builder);
+        match self.grpc_server_builder.as_mut() {
+            Some(builder) => {
+                config(builder);
+            }
+            None => {
+                let mut grpc_server_builder = GrpcServerBuilder::new();
+                config(&mut grpc_server_builder);
+                self.grpc_server_builder = Some(grpc_server_builder);
+            }
+        }
     }
 }
