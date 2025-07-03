@@ -209,6 +209,7 @@ fn start_grpc_server_as_unix_socket(
     );
 
     tokio::spawn(async move {
+        let _ = tokio::fs::remove_file(unix_socket_addr.as_str()).await;
         let uds = tokio::net::UnixListener::bind(unix_socket_addr).unwrap();
         let uds_stream = tokio_stream::wrappers::UnixListenerStream::new(uds);
         server.serve_with_incoming(uds_stream).await.unwrap();
