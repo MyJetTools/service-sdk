@@ -29,10 +29,7 @@ macros = [
     "my-grpc-extensions?/grpc-client",
 ]
 
-with-ssh = [
-    "my-grpc-extensions?/with-ssh",
-    "my-grpc-extensions?/with-unix-socket",
-]
+with-ssh = ["my-grpc-extensions?/with-ssh"]
 
 full = [
     "my-service-bus",
