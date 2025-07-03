@@ -1,3 +1,2 @@
-mod service_info_accessor;
-
-pub use service_info_accessor::*;
+mod service_info;
+pub use service_info::*;

@@ -24,7 +24,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{HttpServerBuilder, ServiceInfo};
 
 #[cfg(feature = "grpc")]
-use crate::{GrpcServer, GrpcServerBuilder};
+use crate::GrpcServerBuilder;
 
 pub struct ServiceContext {
     pub http_server_builder: HttpServerBuilder,
@@ -41,8 +41,6 @@ pub struct ServiceContext {
     pub sb_client: Arc<MyServiceBusClient>,
     #[cfg(feature = "grpc")]
     pub grpc_server_builder: Option<GrpcServerBuilder>,
-    #[cfg(feature = "grpc")]
-    pub grpc_server: Option<GrpcServer>,
 }
 
 impl ServiceContext {
@@ -94,8 +92,6 @@ impl ServiceContext {
             #[cfg(feature = "grpc")]
             grpc_server_builder: None,
             background_timers: vec![],
-            #[cfg(feature = "grpc")]
-            grpc_server: None,
         }
     }
 
@@ -134,8 +130,8 @@ impl ServiceContext {
         self.http_server = Some(http_server);
 
         #[cfg(feature = "grpc")]
-        if let Some(mut grpc_server_builder) = self.grpc_server_builder.take() {
-            self.grpc_server = Some(grpc_server_builder.build());
+        if let Some(grpc_server_builder) = self.grpc_server_builder.as_mut() {
+            grpc_server_builder.start(self.app_name.as_str());
         }
 
         println!("Application is stated");

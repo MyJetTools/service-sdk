@@ -66,6 +66,7 @@ serde = { version = "*" }
 tokio = { version = "*", features = ["rt", "rt-multi-thread", "fs"] }
 async-trait = "*"
 service-sdk-macros = { path = "../service-sdk-macros" }
+tokio-stream = "*"
 
 rust-extensions = { tag = "0.1.5", git = "https://github.com/MyJetTools/rust-extensions.git", features = [
     "with-tokio",
