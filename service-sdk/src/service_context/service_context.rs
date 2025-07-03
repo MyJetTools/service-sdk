@@ -28,7 +28,7 @@ use crate::GrpcServerBuilder;
 
 pub struct ServiceContext {
     pub http_server_builder: HttpServerBuilder,
-    pub http_server: Option<MyHttpServer>,
+    pub http_servers: Vec<MyHttpServer>,
 
     pub telemetry_writer: MyTelemetryWriter,
     pub app_states: Arc<AppStates>,
@@ -80,7 +80,7 @@ impl ServiceContext {
 
         Self {
             http_server_builder: HttpServerBuilder::new(app_name.clone(), app_version.clone()),
-            http_server: None,
+            http_servers: vec![],
             telemetry_writer: MyTelemetryWriter::new(app_name.clone(), settings_reader.clone()),
             app_states,
             #[cfg(feature = "my-nosql-data-reader-sdk")]
@@ -119,15 +119,19 @@ impl ServiceContext {
         #[cfg(feature = "my-service-bus")]
         self.sb_client.start().await;
 
-        let mut http_server = self.http_server_builder.build();
+        let mut http_servers = self.http_server_builder.build();
 
         if std::env::var("HTTP2").is_ok() {
-            http_server.start_h2(self.app_states.clone(), my_logger::LOGGER.clone());
+            for http_server in http_servers.iter_mut() {
+                http_server.start_h2(self.app_states.clone(), my_logger::LOGGER.clone());
+            }
         } else {
-            http_server.start(self.app_states.clone(), my_logger::LOGGER.clone());
+            for http_server in http_servers.iter_mut() {
+                http_server.start(self.app_states.clone(), my_logger::LOGGER.clone());
+            }
         }
 
-        self.http_server = Some(http_server);
+        self.http_servers = http_servers;
 
         #[cfg(feature = "grpc")]
         if let Some(grpc_server_builder) = self.grpc_server_builder.as_mut() {

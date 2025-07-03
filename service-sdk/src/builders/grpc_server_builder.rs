@@ -48,10 +48,7 @@ impl GrpcServerBuilder {
             #[cfg(unix)]
             server_unix_socket: None,
             #[cfg(unix)]
-            unix_socket_enabled: match std::env::var("UNIX_SOCKET") {
-                Ok(value) => value == "1",
-                Err(_) => false,
-            },
+            unix_socket_enabled: super::unix_socket_enabled(),
         }
     }
 
