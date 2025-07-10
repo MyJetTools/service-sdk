@@ -6,12 +6,7 @@ use std::{
 use is_alive_middleware::IsAliveMiddleware;
 use my_http_server::controllers::{
     swagger::SwaggerMiddleware,
-    {
-        actions::{
-            DeleteAction, GetAction, GetDescription, HandleHttpRequest, PostAction, PutAction,
-        },
-        AuthErrorFactory, ControllersAuthorization, ControllersMiddleware,
-    },
+    {actions::*, AuthErrorFactory, ControllersAuthorization, ControllersMiddleware},
 };
 use my_http_server::{HttpServerMiddleware, MyHttpServer};
 use rust_extensions::StrOrString;
@@ -121,6 +116,21 @@ impl HttpServerConfig {
             .as_mut()
             .unwrap()
             .register_delete_action(action);
+    }
+
+    pub fn register_options_action(
+        &mut self,
+        action: Arc<
+            impl OptionsAction + HandleHttpRequest + GetDescription + Send + Sync + 'static,
+        >,
+    ) {
+        if self.controllers.is_none() {
+            self.controllers = Some(ControllersMiddleware::new(None, None));
+        }
+        self.controllers
+            .as_mut()
+            .unwrap()
+            .register_options_action(action);
     }
 
     fn build(
@@ -292,6 +302,20 @@ impl HttpServerBuilder {
         }
 
         self.tcp.register_delete_action(action);
+        return self;
+    }
+
+    pub fn register_options_action(
+        &mut self,
+        action: impl OptionsAction + HandleHttpRequest + GetDescription + Send + Sync + 'static,
+    ) -> &mut Self {
+        let action = Arc::new(action);
+        #[cfg(unix)]
+        if let Some(unix_socket) = self.unix_socket.as_mut() {
+            unix_socket.register_options_action(action.clone());
+        }
+
+        self.tcp.register_options_action(action);
         return self;
     }
 
