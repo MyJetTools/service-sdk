@@ -31,6 +31,8 @@ macros = [
 
 with-ssh = ["my-grpc-extensions?/with-ssh"]
 
+http-static-files = ["my-http-server/static-files"]
+
 full = [
     "my-service-bus",
     "my-nosql-sdk",
