@@ -27,13 +27,15 @@ impl HttpServerMiddleware for MetricsMiddleware {
                     return Some(response);
                 }
                 Err(err) => {
-                    let response =
-                        HttpOutput::as_text(err.to_string()).into_fail_result(502, false);
+                    let response = HttpOutput::from_builder()
+                        .set_content_as_text(err.to_string())
+                        .set_status_code(502)
+                        .into_fail_result(false, false);
+
                     return Some(response);
                 }
             }
         }
-
         None
 
         /*
