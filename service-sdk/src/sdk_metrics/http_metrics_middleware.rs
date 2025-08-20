@@ -30,7 +30,7 @@ impl HttpServerMiddleware for MetricsMiddleware {
                     let response = HttpOutput::from_builder()
                         .set_content_as_text(err.to_string())
                         .set_status_code(502)
-                        .into_fail_result(false, false);
+                        .into_err(false, false);
 
                     return Some(response);
                 }
