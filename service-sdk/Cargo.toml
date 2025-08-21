@@ -100,7 +100,7 @@ my-postgres = { tag = "0.5.6", git = "https://github.com/MyJetTools/my-postgres.
 
 tokio-postgres = { version = "*", optional = true }
 
-my-grpc-extensions = { optional = true, tag = "0.6.5", git = "https://github.com/MyJetTools/my-grpc-extensions", features = [
+my-grpc-extensions = { optional = true, tag = "0.6.6", git = "https://github.com/MyJetTools/my-grpc-extensions", features = [
     "with-telemetry",
 ] }
 
