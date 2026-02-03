@@ -150,6 +150,7 @@ pub fn use_grpc_server(_input: TokenStream) -> TokenStream {
         use service_sdk::my_logger;
         use service_sdk::my_grpc_extensions::tonic;
         use service_sdk::my_grpc_extensions::StreamedResponseWriter;
+        use service_sdk::my_grpc_extensions::StreamedRequestReader;
         use std::time::Duration;
     }
     .into()
