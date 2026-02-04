@@ -14,6 +14,8 @@ use my_logger::LogEventCtx;
 
 use crate::GrpcMetricsMiddlewareLayer;
 
+use crate::IntoGrpcServer;
+
 const DEFAULT_GRPC_PORT: u16 = 8888;
 pub struct GrpcServerBuilder {
     server: Option<
@@ -54,6 +56,14 @@ impl GrpcServerBuilder {
 
     pub fn update_listen_endpoint(&mut self, ip: IpAddr, port: u16) {
         self.listen_address = Some(SocketAddr::new(ip, port));
+    }
+
+    pub fn add_service<S>(&mut self, svc: S)
+    where
+        S: IntoGrpcServer,
+        <S::GrpcServer as my_grpc_extensions::tonic::codegen::Service<Request<Body>>>::Future: Send + 'static,
+    {
+        self.add_grpc_service(svc.into_grpc_server());
     }
 
     pub fn add_grpc_service<S>(&mut self, svc: S)
