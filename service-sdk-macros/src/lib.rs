@@ -308,8 +308,3 @@ pub fn generate_grpc_service(input: TokenStream) -> TokenStream {
 
     return crate::generate_grpc_service::max_hardcoded(input);
 }
-
-#[proc_macro]
-pub fn generate_named_grpc_service(input: TokenStream) -> TokenStream {
-    return crate::generate_grpc_service::with_params(input);
-}
