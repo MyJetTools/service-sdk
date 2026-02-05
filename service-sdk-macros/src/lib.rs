@@ -300,8 +300,7 @@ pub fn use_signal_r_subscriber(_input: TokenStream) -> TokenStream {
 use quote::quote;
 use syn::{
     parse::{Parse, ParseStream},
-    parse_macro_input,
-    Ident, Path, Result, Token, Type,
+    parse_macro_input, Ident, Path, Result, Token, Type,
 };
 
 struct GenerateGrpcServiceArgs {
@@ -320,41 +319,42 @@ impl Parse for GenerateGrpcServiceArgs {
 
         let server_path: Path = input.parse()?;
 
-        Ok(Self { service_ident, app_ty, server_path })
+        Ok(Self {
+            service_ident,
+            app_ty,
+            server_path,
+        })
     }
 }
 
 #[proc_macro]
 pub fn generate_grpc_service(input: TokenStream) -> TokenStream {
-    let GenerateGrpcServiceArgs { service_ident, app_ty, server_path } = parse_macro_input!(input as GenerateGrpcServiceArgs);
+    let input: proc_macro2::TokenStream = input.into();
 
-    let expanded = quote! {
+    quote::quote! {
+
         #[derive(Clone)]
-        pub struct #service_ident {
-            pub app_context: ::std::sync::Arc<#app_ty>,
+        pub struct SdkGrpcService {
+            pub app: std::sync::Arc<#input>,
         }
 
-        impl #service_ident {
-            pub fn new(app_context: ::std::sync::Arc<#app_ty>) -> Self {
-                Self { app_context }
+        impl SdkGrpcService {
+            pub fn new(app: std::sync::Arc<#input>) -> Self {
+                Self { app }
             }
         }
 
-        impl service_sdk::IntoGrpcServer for #service_ident {
-            type GrpcServer = #server_path<Self>;
-
-            fn into_grpc_server(self) -> Self::GrpcServer {
-                #server_path::new(self)
-            }
-        }
-    };
-
-    expanded.into()
+    }
+    .into()
 }
 
 #[proc_macro]
 pub fn generate_named_grpc_service(input: TokenStream) -> TokenStream {
-    let GenerateGrpcServiceArgs { service_ident, app_ty, server_path } = parse_macro_input!(input as GenerateGrpcServiceArgs);
+    let GenerateGrpcServiceArgs {
+        service_ident,
+        app_ty,
+        server_path,
+    } = parse_macro_input!(input as GenerateGrpcServiceArgs);
 
     let expanded = quote! {
         #[derive(Clone)]
