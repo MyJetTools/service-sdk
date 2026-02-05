@@ -351,3 +351,31 @@ pub fn generate_grpc_service(input: TokenStream) -> TokenStream {
 
     expanded.into()
 }
+
+#[proc_macro]
+pub fn generate_named_grpc_service(input: TokenStream) -> TokenStream {
+    let GenerateGrpcServiceArgs { service_ident, app_ty, server_path } = parse_macro_input!(input as GenerateGrpcServiceArgs);
+
+    let expanded = quote! {
+        #[derive(Clone)]
+        pub struct #service_ident {
+            pub app_context: ::std::sync::Arc<#app_ty>,
+        }
+
+        impl #service_ident {
+            pub fn new(app_context: ::std::sync::Arc<#app_ty>) -> Self {
+                Self { app_context }
+            }
+        }
+
+        impl service_sdk::IntoGrpcServer for #service_ident {
+            type GrpcServer = #server_path<Self>;
+
+            fn into_grpc_server(self) -> Self::GrpcServer {
+                #server_path::new(self)
+            }
+        }
+    };
+
+    expanded.into()
+}
