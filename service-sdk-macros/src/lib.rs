@@ -1,5 +1,6 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
+mod generate_grpc_service;
 
 #[proc_macro]
 pub fn generate_settings_signature(_item: TokenStream) -> TokenStream {
@@ -297,85 +298,18 @@ pub fn use_signal_r_subscriber(_input: TokenStream) -> TokenStream {
     .into()
 }
 
-use quote::quote;
-use syn::{
-    parse::{Parse, ParseStream},
-    parse_macro_input, Ident, Path, Result, Token, Type,
-};
-
-struct GenerateGrpcServiceArgs {
-    service_ident: Ident,
-    app_ty: Type,
-    server_path: Path,
-}
-
-impl Parse for GenerateGrpcServiceArgs {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let service_ident: Ident = input.parse()?;
-        input.parse::<Token![,]>()?;
-
-        let app_ty: Type = input.parse()?;
-        input.parse::<Token![,]>()?;
-
-        let server_path: Path = input.parse()?;
-
-        Ok(Self {
-            service_ident,
-            app_ty,
-            server_path,
-        })
-    }
-}
-
 #[proc_macro]
 pub fn generate_grpc_service(input: TokenStream) -> TokenStream {
-    let input: proc_macro2::TokenStream = input.into();
+    let input_as_string = input.to_string();
 
-    quote::quote! {
-
-        #[derive(Clone)]
-        pub struct SdkGrpcService {
-            pub app: std::sync::Arc<#input>,
-        }
-
-        impl SdkGrpcService {
-            pub fn new(app: std::sync::Arc<#input>) -> Self {
-                Self { app }
-            }
-        }
-
+    if input_as_string.contains(',') {
+        return crate::generate_grpc_service::with_params(input);
     }
-    .into()
+
+    return crate::generate_grpc_service::max_hardcoded(input);
 }
 
 #[proc_macro]
 pub fn generate_named_grpc_service(input: TokenStream) -> TokenStream {
-    let GenerateGrpcServiceArgs {
-        service_ident,
-        app_ty,
-        server_path,
-    } = parse_macro_input!(input as GenerateGrpcServiceArgs);
-
-    let expanded = quote! {
-        #[derive(Clone)]
-        pub struct #service_ident {
-            pub app_context: ::std::sync::Arc<#app_ty>,
-        }
-
-        impl #service_ident {
-            pub fn new(app_context: ::std::sync::Arc<#app_ty>) -> Self {
-                Self { app_context }
-            }
-        }
-
-        impl service_sdk::IntoGrpcServer for #service_ident {
-            type GrpcServer = #server_path<Self>;
-
-            fn into_grpc_server(self) -> Self::GrpcServer {
-                #server_path::new(self)
-            }
-        }
-    };
-
-    expanded.into()
+    return crate::generate_grpc_service::with_params(input);
 }
