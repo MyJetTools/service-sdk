@@ -20,3 +20,5 @@ proc-macro = true
 quote = "*"
 
 proc-macro2 = "*"
+
+syn = { version = "*", features = ["full"] }

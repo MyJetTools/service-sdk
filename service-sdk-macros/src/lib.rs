@@ -297,23 +297,57 @@ pub fn use_signal_r_subscriber(_input: TokenStream) -> TokenStream {
     .into()
 }
 
+use quote::quote;
+use syn::{
+    parse::{Parse, ParseStream},
+    parse_macro_input,
+    Ident, Path, Result, Token, Type,
+};
+
+struct GenerateGrpcServiceArgs {
+    service_ident: Ident,
+    app_ty: Type,
+    server_path: Path,
+}
+
+impl Parse for GenerateGrpcServiceArgs {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let service_ident: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+
+        let app_ty: Type = input.parse()?;
+        input.parse::<Token![,]>()?;
+
+        let server_path: Path = input.parse()?;
+
+        Ok(Self { service_ident, app_ty, server_path })
+    }
+}
+
 #[proc_macro]
 pub fn generate_grpc_service(input: TokenStream) -> TokenStream {
-    let input: proc_macro2::TokenStream = input.into();
+    let GenerateGrpcServiceArgs { service_ident, app_ty, server_path } = parse_macro_input!(input as GenerateGrpcServiceArgs);
 
-    quote::quote! {
-
+    let expanded = quote! {
         #[derive(Clone)]
-        pub struct SdkGrpcService {
-            pub app: std::sync::Arc<#input>,
+        pub struct #service_ident {
+            pub app_context: ::std::sync::Arc<#app_ty>,
         }
 
-        impl SdkGrpcService {
-            pub fn new(app: std::sync::Arc<#input>) -> Self {
-                Self { app }
+        impl #service_ident {
+            pub fn new(app_context: ::std::sync::Arc<#app_ty>) -> Self {
+                Self { app_context }
             }
         }
 
-    }
-    .into()
+        impl service_sdk::IntoGrpcServer for #service_ident {
+            type GrpcServer = #server_path<Self>;
+
+            fn into_grpc_server(self) -> Self::GrpcServer {
+                #server_path::new(self)
+            }
+        }
+    };
+
+    expanded.into()
 }
