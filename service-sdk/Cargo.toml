@@ -78,7 +78,7 @@ my-telemetry = { tag = "1.2.2", git = "https://github.com/MyJetTools/my-telemetr
 ] }
 
 my-no-sql-sdk = { optional = true, git = "https://github.com/MyJetTools/my-no-sql-sdk.git", tag = "0.4.1" }
-my-service-bus = { optional = true, git = "https://github.com/MyJetTools/my-service-bus-sdk.git", tag = "1.1.4", features = [
+my-service-bus = { optional = true, git = "https://github.com/MyJetTools/my-service-bus-sdk.git", tag = "1.1.5", features = [
     "client",
     "with-telemetry",
 ] }
