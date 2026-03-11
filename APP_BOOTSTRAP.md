@@ -832,6 +832,44 @@ Notes:
 
 ---
 
+### SortableId — Generating IDs on Server Side
+
+Use `SortableId` to generate time-sortable unique IDs on the server (e.g. when creating new entities with empty ID):
+
+```rust
+use service_sdk::rust_extensions::SortableId;
+
+let id: String = if profile.id.is_empty() {
+    SortableId::generate().into()  // Into<String> — no extra allocation
+} else {
+    profile.id
+};
+```
+
+**Notes:**
+- `SortableId` is re-exported from `rust-extensions` via `service_sdk::rust_extensions::SortableId`
+- `.into()` gives `String` — prefer over `.to_string()` to avoid extra allocation
+- Generate on the server side in server functions, never on the client
+
+---
+
+### Error Handling — map_err with Context
+
+Always add context when converting errors with `map_err`. Include the operation name:
+
+```rust
+// ✅ CORRECT — clear what failed
+.map_err(|e| ServerFnError::new(format!("get_swap_profiles gRPC call failed: {:?}", e)))?
+
+// ❌ WRONG — no context, hard to debug
+.map_err(|e| ServerFnError::new(format!("{:?}", e)))?
+```
+
+- Use `{:?}` (Debug) not `{}` (Display) for gRPC errors — `GrpcReadError` does not implement `Display`
+- Pattern: `"<operation_name> failed: {:?}"` — e.g. `"save_profile id=X gRPC call failed: {:?}"`
+
+---
+
 ## Instructions
 
 As you add new content to this project, document it here following this format:
