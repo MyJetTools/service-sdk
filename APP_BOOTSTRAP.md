@@ -222,6 +222,99 @@ impl AppContext {
 - The service context is mutable and used to start the application lifecycle
 - The app context is wrapped in `Arc` for shared ownership across async tasks
 - The `start_application().await` call blocks until the application shuts down
+- **CRITICAL**: `settings_reader` must **always** be stored in `AppContext` — never just read in `main.rs` and discard. It must be accessible from timers, flows, and background tasks via `app.settings_reader`
+- **CRITICAL**: When `AppContext::new` clones `settings_reader` for repos/services, assign `settings_reader` as the **last field** in `Self { }` — because it is moved (not cloned) into the struct after all clones are done
+
+### Reading Settings Values (`use_settings` lambda)
+
+**What was added:**
+- Pattern for reading individual settings fields without copying the whole struct
+
+**How to add it:**
+Use `settings_reader.use_settings(|s| ...)` wherever you need a settings value. Never clone the whole `SettingsModel`.
+
+**Files modified/created:**
+- Any file that needs a settings value — call `app.settings_reader.use_settings(...)`
+
+**Code snippets:**
+```rust
+// Correct — reads only what you need, minimal allocation
+let profile_id = app.settings_reader
+    .use_settings(|s| s.default_swap_profile_id.clone())
+    .await;
+
+// Wrong — don't clone the whole struct
+let settings = app.settings_reader.get_settings().await;
+let profile_id = settings.default_swap_profile_id.clone();
+```
+
+**Notes:**
+- The lambda receives a read-locked reference to `SettingsModel` — keep it short, no async inside
+- Works from anywhere that has `Arc<AppContext>` via `app.settings_reader.use_settings(...)`
+- Use this pattern in timers, flows, background handlers — anywhere settings are needed at runtime
+
+### Timer Pattern (`MyTimerTick`) — Thin Timer
+
+**What was added:**
+- Background timer ticking on a fixed interval
+- **Rule: timer only calls a script/function. No business logic inside `tick()`**
+
+**How to add it:**
+1. Create a timer struct implementing `MyTimerTick`
+2. Put all logic in a separate function in `scripts/`
+3. Register with `service_context.register_timer()` **before** `start_application()`
+
+**Files modified/created:**
+- `src/background/my_timer.rs` — timer struct
+- `src/background/mod.rs` — export timer
+- `src/scripts/my_script.rs` — actual logic called by timer
+- `src/main.rs` — register timer
+
+**Code snippets:**
+
+`src/background/my_timer.rs`:
+```rust
+use std::sync::Arc;
+use service_sdk::rust_extensions::MyTimerTick;
+use crate::app::AppContext;
+
+pub struct MyTimer {
+    app: Arc<AppContext>,
+}
+
+impl MyTimer {
+    pub fn new(app: Arc<AppContext>) -> Self {
+        Self { app }
+    }
+}
+
+#[async_trait::async_trait]
+impl MyTimerTick for MyTimer {
+    async fn tick(&self) {
+        // Timer is thin — only calls a script
+        crate::scripts::my_script::execute(&self.app).await;
+    }
+}
+```
+
+`src/main.rs` — registration (before `start_application`):
+```rust
+service_context.register_timer(std::time::Duration::from_secs(60), |builder| {
+    builder.register_timer(
+        "MyTimer",                           // name shown in logs/telemetry
+        Arc::new(MyTimer::new(app.clone())),
+    )
+});
+
+service_context.start_application().await;
+```
+
+**Notes:**
+- Timer tick interval is the first argument to `register_timer`
+- Timer name (second arg to `builder.register_timer`) is used in logs/telemetry
+- **Timer is thin** — `tick()` only calls a script. All logic lives in `scripts/` as a standalone async function
+- Timer-internal state (e.g. dedup `HashSet`, last-run tracking) goes in the timer struct behind `tokio::sync::Mutex`
+- `register_timer` must be called **before** `service_context.start_application().await`
 
 ### gRPC Server Bootstrap (CONDITIONAL - Only if user requests gRPC server features)
 
@@ -479,7 +572,7 @@ pub use {service_name}_grpc_client::*;
 pub struct SettingsModel {
     pub my_telemetry: Option<String>,
     pub seq_conn_string: String,
-    
+
     pub {settings_url_field_name}: String, // Ask user for field name (e.g., {service_name}_grpc_url)
 }
 ```
@@ -507,7 +600,7 @@ use crate::grpc_client::*;
 
 pub struct AppContext {
     pub settings_reader: Arc<crate::settings::SettingsReader>,
-    pub {app_context_field_name}: {ClientTypeName}, // Ask user for field name (e.g., {service_name}_grpc_client)
+    pub {app_context_field_name}: {ClientTypeName}, // Ask user for field name
 }
 
 impl AppContext {
@@ -572,7 +665,7 @@ pub mod {module_name}_grpc {
 pub struct SettingsModel {
     pub my_telemetry: Option<String>,
     pub seq_conn_string: String,
-    
+
     pub my_sb_tcp_host_port: String,
 }
 ```
@@ -736,6 +829,44 @@ Notes:
 - `get_sb_publisher(true)` enables retry-on-disconnect for publishes (it will loop until a connection is restored when errors are `NoConnectionToPublish`/`Disconnected`); the topic is created if missing regardless of the flag.
 - Choose `TopicQueueType` on the subscriber side to match how publishers emit messages.
 - Use `partition_key` when ordering/affinity is required; otherwise pass `None`.
+
+---
+
+### SortableId — Generating IDs on Server Side
+
+Use `SortableId` to generate time-sortable unique IDs on the server (e.g. when creating new entities with empty ID):
+
+```rust
+use service_sdk::rust_extensions::SortableId;
+
+let id: String = if profile.id.is_empty() {
+    SortableId::generate().into()  // Into<String> — no extra allocation
+} else {
+    profile.id
+};
+```
+
+**Notes:**
+- `SortableId` is re-exported from `rust-extensions` via `service_sdk::rust_extensions::SortableId`
+- `.into()` gives `String` — prefer over `.to_string()` to avoid extra allocation
+- Generate on the server side in server functions, never on the client
+
+---
+
+### Error Handling — map_err with Context
+
+Always add context when converting errors with `map_err`. Include the operation name:
+
+```rust
+// ✅ CORRECT — clear what failed
+.map_err(|e| ServerFnError::new(format!("get_swap_profiles gRPC call failed: {:?}", e)))?
+
+// ❌ WRONG — no context, hard to debug
+.map_err(|e| ServerFnError::new(format!("{:?}", e)))?
+```
+
+- Use `{:?}` (Debug) not `{}` (Display) for gRPC errors — `GrpcReadError` does not implement `Display`
+- Pattern: `"<operation_name> failed: {:?}"` — e.g. `"save_profile id=X gRPC call failed: {:?}"`
 
 ---
 
