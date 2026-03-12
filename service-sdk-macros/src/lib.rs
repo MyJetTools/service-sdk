@@ -187,7 +187,7 @@ pub fn use_settings(_input: TokenStream) -> TokenStream {
 
     #[cfg(feature = "grpc")]
     uses.push(quote::quote!(
-        use service_sdk::my_grpc_extensions::GrpcClientSettings;
+        use service_sdk::my_grpc_extensions::*;
     ));
 
     quote::quote! {
@@ -199,6 +199,7 @@ pub fn use_settings(_input: TokenStream) -> TokenStream {
         use service_sdk::my_logger::my_seq_logger::SeqSettings;
         use service_sdk::my_telemetry::my_telemetry_writer::MyTelemetrySettings;
         use service_sdk::macros::AutoGenerateSettingsTraits;
+        use serde::{Deserialize, Serialize};
         #(#uses)*
     }
     .into()
