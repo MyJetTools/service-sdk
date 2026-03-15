@@ -112,8 +112,6 @@ ci-utils = { git = "https://github.com/MyJetTools/ci-utils.git", tag = "{last_ta
 
 `src/settings.rs`:
 ```rust
-use serde::{Deserialize, Serialize};
-
 service_sdk::macros::use_settings!();
 
 #[derive(
@@ -585,8 +583,10 @@ impl GrpcClientSettings for SettingsReader {
         use crate::grpc_client::*;
 
         if name == {ClientTypeName}::get_service_name() {
-            let read_access = self.settings.read().await;
-            return read_access.{settings_url_field_name}.to_string().into();
+            return self
+                .use_settings(|s| s.{settings_url_field_name}.clone())
+                .await
+                .into();
         }
 
         panic!("Unknown grpc service name: {}", name)
@@ -641,6 +641,75 @@ pub mod {module_name}_grpc {
 - Multiple gRPC clients can be added by repeating this pattern for each service
 - The same proto file can be used for both server and client implementations
 - **CRITICAL**: If implementing a gRPC client WITHOUT a server implementation, you MUST add `tonic::include_proto!()` in `main.rs` to include the proto definitions. If a server implementation exists, the proto module is already included there.
+
+### HTTP Server Bootstrap (CONDITIONAL - Only if user requests HTTP server features)
+
+**⚠️ IMPORTANT**: This section should ONLY be used when the user explicitly requests HTTP server functionality. If the user does not ask for HTTP server features, DO NOT include this in the bootstrap.
+
+**What was added:**
+- `src/http_server/build_controllers.rs`: controller registration function
+- `src/http_server/controllers/mod.rs`: empty controllers module
+- `src/http_server/mod.rs`: module exports
+- HTTP server configuration in `main.rs` via `service_context.configure_http_server`
+
+**Key rules:**
+- The SDK handles HTTP server creation, Swagger, and lifecycle — no `MyHttpServer`, `SwaggerMiddleware`, or `app_states` in user code
+- `build_controllers` receives `&mut HttpServerBuilder` from `service_sdk` — call `register_*_action` on it directly
+- No `app_states` field in `AppContext` — it is not needed
+
+**How to add it:**
+1. Create `src/http_server/build_controllers.rs` with the `build_controllers` function
+2. Create `src/http_server/controllers/mod.rs` (empty initially)
+3. Create `src/http_server/mod.rs` with module exports
+4. In `main.rs`, add `mod http_server;` and call `service_context.configure_http_server`
+
+**Files modified/created:**
+- `src/http_server/build_controllers.rs`
+- `src/http_server/controllers/mod.rs`
+- `src/http_server/mod.rs`
+- `src/main.rs` — added `configure_http_server` call
+
+**Code snippets:**
+
+`src/http_server/build_controllers.rs`:
+```rust
+use std::sync::Arc;
+
+use service_sdk::HttpServerBuilder;
+
+use crate::app::AppContext;
+
+pub fn build_controllers(app: &Arc<AppContext>, http_server_builder: &mut HttpServerBuilder) {
+    http_server_builder
+        .register_post_action(super::controllers::some_group::SomeAction::new(app.clone()));
+
+    http_server_builder
+        .register_get_action(super::controllers::some_group::AnotherAction::new(app.clone()));
+}
+```
+
+`src/http_server/mod.rs`:
+```rust
+mod build_controllers;
+pub use build_controllers::*;
+pub mod controllers;
+```
+
+`src/main.rs` — configure HTTP server before `start_application`:
+```rust
+service_context.configure_http_server(|cb| {
+    crate::http_server::build_controllers(&app, cb);
+});
+
+service_context.start_application().await;
+```
+
+**Notes:**
+- `HttpServerBuilder` is imported from `service_sdk::HttpServerBuilder` — no separate `my_http_server` crate needed
+- Actions are registered directly on `http_server_builder`, not wrapped in `Arc`
+- The SDK automatically sets up Swagger at `/swagger` using `APP_NAME` and `APP_VERSION` from the service context
+- Do NOT add `app_states` to `AppContext` — it is not needed for HTTP services
+- Do NOT create `start_up.rs` or instantiate `MyHttpServer` manually
 
 ### Service Bus Bootstrap (CONDITIONAL - Only if user requests service bus features)
 
