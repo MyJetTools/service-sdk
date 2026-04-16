@@ -37,7 +37,7 @@ pub struct GrpcServerBuilder {
         >,
     >,
     #[cfg(unix)]
-    unix_socket_enabled: bool,
+    mode: super::UnixSocketMode,
 
     listen_address: Option<SocketAddr>,
 }
@@ -50,7 +50,7 @@ impl GrpcServerBuilder {
             #[cfg(unix)]
             server_unix_socket: None,
             #[cfg(unix)]
-            unix_socket_enabled: super::unix_socket_enabled(),
+            mode: super::UnixSocketMode::from_env(),
         }
     }
 
@@ -80,7 +80,7 @@ impl GrpcServerBuilder {
         S::Future: Send + 'static,
     {
         #[cfg(unix)]
-        if self.unix_socket_enabled {
+        if self.mode.unix_socket_enabled() {
             match self.server_unix_socket.take() {
                 Some(server_unix_socket) => {
                     let server_unix_socket = server_unix_socket.add_service(svc.clone());
@@ -97,6 +97,11 @@ impl GrpcServerBuilder {
                     self.server_unix_socket = Some(server_unix_socket);
                 }
             };
+        }
+
+        #[cfg(unix)]
+        if !self.mode.tcp_enabled() {
+            return;
         }
 
         match self.server.take() {

@@ -176,20 +176,27 @@ pub struct HttpServerBuilder {
 
     #[cfg(unix)]
     unix_socket: Option<HttpServerConfig>,
+
+    #[cfg(unix)]
+    mode: super::UnixSocketMode,
 }
 impl HttpServerBuilder {
     pub fn new(app_name: StrOrString<'static>, app_version: StrOrString<'static>) -> Self {
+        #[cfg(unix)]
+        let mode = super::UnixSocketMode::from_env();
         Self {
             listen_address: SocketAddr::new(crate::consts::get_default_ip_address(), 8000),
             app_name,
             app_version,
             tcp: HttpServerConfig::default(),
             #[cfg(unix)]
-            unix_socket: if super::unix_socket_enabled() {
+            unix_socket: if mode.unix_socket_enabled() {
                 Some(HttpServerConfig::default())
             } else {
                 None
             },
+            #[cfg(unix)]
+            mode,
         }
     }
 
@@ -336,14 +343,21 @@ impl HttpServerBuilder {
             result.push(my_http_server);
         }
 
-        let mut my_http_server = MyHttpServer::new(self.listen_address);
-        self.tcp.build(
-            &mut my_http_server,
-            self.app_name.clone(),
-            self.app_version.clone(),
-        );
+        #[cfg(unix)]
+        let tcp_enabled = self.mode.tcp_enabled();
+        #[cfg(not(unix))]
+        let tcp_enabled = true;
 
-        result.push(my_http_server);
+        if tcp_enabled {
+            let mut my_http_server = MyHttpServer::new(self.listen_address);
+            self.tcp.build(
+                &mut my_http_server,
+                self.app_name.clone(),
+                self.app_version.clone(),
+            );
+
+            result.push(my_http_server);
+        }
 
         result
     }
