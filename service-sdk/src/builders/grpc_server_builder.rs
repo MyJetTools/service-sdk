@@ -50,7 +50,7 @@ impl GrpcServerBuilder {
             #[cfg(unix)]
             server_unix_socket: None,
             #[cfg(unix)]
-            mode: super::UnixSocketMode::from_env(),
+            mode: super::UnixSocketMode::default(),
         }
     }
 
