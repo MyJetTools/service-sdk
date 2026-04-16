@@ -183,7 +183,7 @@ pub struct HttpServerBuilder {
 impl HttpServerBuilder {
     pub fn new(app_name: StrOrString<'static>, app_version: StrOrString<'static>) -> Self {
         #[cfg(unix)]
-        let mode = super::UnixSocketMode::from_env();
+        let mode = super::UnixSocketMode::default();
         Self {
             listen_address: SocketAddr::new(crate::consts::get_default_ip_address(), 8000),
             app_name,
