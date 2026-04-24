@@ -12,7 +12,7 @@ use my_no_sql_sdk::reader::*;
 #[cfg(feature = "my-service-bus")]
 use my_service_bus::{
     abstractions::{
-        publisher::MyServiceBusPublisher,
+        publisher::{MyServiceBusPublisher, PublisherWithInternalQueue},
         subscriber::{MySbMessageDeserializer, SubscriberCallback, TopicQueueType},
         GetMySbModelTopicId, MySbMessageSerializer,
     },
@@ -200,6 +200,15 @@ impl ServiceContext {
         do_retries: bool,
     ) -> MyServiceBusPublisher<TModel> {
         return self.sb_client.get_publisher(do_retries).await;
+    }
+
+    #[cfg(feature = "my-service-bus")]
+    pub async fn get_sb_publisher_with_internal_queue<
+        TModel: MySbMessageSerializer + GetMySbModelTopicId,
+    >(
+        &self,
+    ) -> PublisherWithInternalQueue<TModel> {
+        return self.sb_client.get_publisher_with_internal_queue().await;
     }
 
     #[cfg(feature = "grpc")]

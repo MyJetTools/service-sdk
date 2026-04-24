@@ -154,6 +154,12 @@ let service_context = ServiceContext::new(settings_reader);
 let sb_publisher: MyServiceBusPublisher<Model> = service_context.get_sb_publisher().await;
 ```
 
+get_sb_publisher_with_internal_queue
+```rust, no_run
+let service_context = ServiceContext::new(settings_reader);
+let sb_publisher: PublisherWithInternalQueue<Model> = service_context.get_sb_publisher_with_internal_queue().await;
+```
+
 # GRPC Server
 
 add_grpc_service - bind grpc server implementation.
