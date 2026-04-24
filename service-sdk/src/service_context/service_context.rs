@@ -199,7 +199,7 @@ impl ServiceContext {
         &self,
         do_retries: bool,
     ) -> MyServiceBusPublisher<TModel> {
-        return self.sb_client.get_publisher(do_retries).await;
+        return self.sb_client.get_publisher(do_retries);
     }
 
     #[cfg(feature = "my-service-bus")]
@@ -208,7 +208,7 @@ impl ServiceContext {
     >(
         &self,
     ) -> PublisherWithInternalQueue<TModel> {
-        return self.sb_client.get_publisher_with_internal_queue().await;
+        return self.sb_client.get_publisher_with_internal_queue();
     }
 
     #[cfg(feature = "grpc")]
