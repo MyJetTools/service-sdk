@@ -176,3 +176,27 @@ let service_context = ServiceContext::new(settings_reader);
 let ns_reader: Arc<MyNoSqlDataReader<MyModel>> = service_context.get_ns_reader().await;
 ```
 
+# HTTP server protocol selection
+
+The HTTP version for TCP listeners is controlled via env vars:
+
+| Env var    | Effect                                                  |
+| ---------- | ------------------------------------------------------- |
+| `HTTP2=1`  | TCP listener serves HTTP/2                              |
+| `HTTP1=1`  | TCP listener serves HTTP/1                              |
+| (unset)    | TCP listener serves auto-negotiated HTTP/1 + HTTP/2     |
+
+# Unix socket
+
+On unix platforms an additional unix-socket listener can be enabled via `UNIX_SOCKET` env var. The socket path is `~/http/<service-name>`. Auto h1/h2 negotiation is not supported on unix sockets, so the protocol is selected explicitly:
+
+| `UNIX_SOCKET` value          | Unix socket | TCP listener | Unix protocol |
+| ---------------------------- | ----------- | ------------ | ------------- |
+| (unset / unknown)            | off         | on           | —             |
+| `1`                          | on          | on           | HTTP/1        |
+| `ONLY`                       | on          | off          | HTTP/1        |
+| `H2` / `HTTP2`               | on          | on           | HTTP/2        |
+| `ONLY_H2` / `ONLY_HTTP2`     | on          | off          | HTTP/2        |
+
+The `HTTP1`/`HTTP2` env vars only affect the TCP listener; the unix socket always uses the protocol implied by `UNIX_SOCKET`.
+
