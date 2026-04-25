@@ -125,9 +125,13 @@ impl ServiceContext {
             for http_server in http_servers.iter_mut() {
                 http_server.start_h2(self.app_states.clone(), my_logger::LOGGER.clone());
             }
-        } else {
+        }else if std::env::var("HTTP1").is_ok() {
             for http_server in http_servers.iter_mut() {
                 http_server.start(self.app_states.clone(), my_logger::LOGGER.clone());
+            }
+        } else {
+            for http_server in http_servers.iter_mut() {
+                http_server.start_auto(self.app_states.clone(), my_logger::LOGGER.clone());
             }
         }
 
