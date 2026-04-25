@@ -326,6 +326,11 @@ impl HttpServerBuilder {
         return self;
     }
 
+    #[cfg(unix)]
+    pub fn get_unix_socket_mode(&self) -> super::UnixSocketMode {
+        self.mode
+    }
+
     pub fn build(&mut self) -> Vec<MyHttpServer> {
         let mut result = vec![];
         #[cfg(unix)]

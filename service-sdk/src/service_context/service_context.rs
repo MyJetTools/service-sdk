@@ -1,4 +1,4 @@
-use my_http_server::MyHttpServer;
+use my_http_server::{ListenAddr, MyHttpServer};
 use my_logger::my_seq_logger::{SeqLogger, SeqSettings};
 use my_telemetry::my_telemetry_writer::{MyTelemetrySettings, MyTelemetryWriter};
 use rust_extensions::{AppStates, MyTimer, StrOrString};
@@ -121,16 +121,33 @@ impl ServiceContext {
 
         let mut http_servers = self.http_server_builder.build();
 
-        if std::env::var("HTTP2").is_ok() {
-            for http_server in http_servers.iter_mut() {
+        #[cfg(unix)]
+        let unix_socket_http_version = self
+            .http_server_builder
+            .get_unix_socket_mode()
+            .http_version();
+
+        let global_http2 = std::env::var("HTTP2").is_ok();
+        let global_http1 = std::env::var("HTTP1").is_ok();
+
+        for http_server in http_servers.iter_mut() {
+            let is_unix = matches!(http_server.addr, ListenAddr::Unix(_));
+
+            if is_unix {
+                #[cfg(unix)]
+                match unix_socket_http_version {
+                    crate::UnixSocketHttpVersion::Http2 => {
+                        http_server.start_h2(self.app_states.clone(), my_logger::LOGGER.clone());
+                    }
+                    crate::UnixSocketHttpVersion::Http1 => {
+                        http_server.start(self.app_states.clone(), my_logger::LOGGER.clone());
+                    }
+                }
+            } else if global_http2 {
                 http_server.start_h2(self.app_states.clone(), my_logger::LOGGER.clone());
-            }
-        }else if std::env::var("HTTP1").is_ok() {
-            for http_server in http_servers.iter_mut() {
+            } else if global_http1 {
                 http_server.start(self.app_states.clone(), my_logger::LOGGER.clone());
-            }
-        } else {
-            for http_server in http_servers.iter_mut() {
+            } else {
                 http_server.start_auto(self.app_states.clone(), my_logger::LOGGER.clone());
             }
         }

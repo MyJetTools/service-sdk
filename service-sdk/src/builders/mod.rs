@@ -6,4 +6,4 @@ mod grpc_server_builder;
 #[cfg(feature = "grpc")]
 pub use grpc_server_builder::*;
 mod unix_socket_enabled;
-use unix_socket_enabled::*;
+pub use unix_socket_enabled::*;
