@@ -99,11 +99,6 @@ impl GrpcServerBuilder {
             };
         }
 
-        #[cfg(unix)]
-        if !self.mode.tcp_enabled() {
-            return;
-        }
-
         match self.server.take() {
             Some(server) => {
                 let server = server.add_service(svc);
