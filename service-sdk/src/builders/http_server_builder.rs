@@ -348,21 +348,14 @@ impl HttpServerBuilder {
             result.push(my_http_server);
         }
 
-        #[cfg(unix)]
-        let tcp_enabled = self.mode.tcp_enabled();
-        #[cfg(not(unix))]
-        let tcp_enabled = true;
+        let mut my_http_server = MyHttpServer::new(self.listen_address);
+        self.tcp.build(
+            &mut my_http_server,
+            self.app_name.clone(),
+            self.app_version.clone(),
+        );
 
-        if tcp_enabled {
-            let mut my_http_server = MyHttpServer::new(self.listen_address);
-            self.tcp.build(
-                &mut my_http_server,
-                self.app_name.clone(),
-                self.app_version.clone(),
-            );
-
-            result.push(my_http_server);
-        }
+        result.push(my_http_server);
 
         result
     }

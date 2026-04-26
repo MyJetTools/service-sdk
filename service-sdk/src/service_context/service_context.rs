@@ -122,10 +122,7 @@ impl ServiceContext {
         let mut http_servers = self.http_server_builder.build();
 
         #[cfg(unix)]
-        let unix_socket_http_version = self
-            .http_server_builder
-            .get_unix_socket_mode()
-            .http_version();
+        let unix_socket_mode = self.http_server_builder.get_unix_socket_mode();
 
         let global_http2 = std::env::var("HTTP2").is_ok();
         let global_http1 = std::env::var("HTTP1").is_ok();
@@ -135,13 +132,17 @@ impl ServiceContext {
 
             if is_unix {
                 #[cfg(unix)]
-                match unix_socket_http_version {
-                    crate::UnixSocketHttpVersion::Http2 => {
+                match unix_socket_mode {
+                    crate::UnixSocketMode::H2 => {
                         http_server.start_h2(self.app_states.clone(), my_logger::LOGGER.clone());
                     }
-                    crate::UnixSocketHttpVersion::Http1 => {
+                    crate::UnixSocketMode::H1 => {
                         http_server.start(self.app_states.clone(), my_logger::LOGGER.clone());
                     }
+                    crate::UnixSocketMode::Auto => {
+                        http_server.start_auto(self.app_states.clone(), my_logger::LOGGER.clone());
+                    }
+                    crate::UnixSocketMode::Disabled => {}
                 }
             } else if global_http2 {
                 http_server.start_h2(self.app_states.clone(), my_logger::LOGGER.clone());
