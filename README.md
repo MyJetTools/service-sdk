@@ -45,8 +45,8 @@ pub struct SettingsModel {
 }
 
 // `SdkSettingsTraits` generates `impl ServiceInfo for SettingsReader`
-// from CARGO_PKG_NAME / CARGO_PKG_VERSION (with `SERVICE_NAME_SUFFIX` env
-// override). Apply it to a struct literally named `SettingsReader`.
+// from `CARGO_PKG_NAME` / `CARGO_PKG_VERSION`. Apply it to a struct
+// literally named `SettingsReader`.
 #[derive(SdkSettingsTraits)]
 pub struct SettingsReader {
     pub settings: tokio::sync::RwLock<Arc<SettingsModel>>,
@@ -93,41 +93,40 @@ impl my_seq_logger::SeqSettings for SettingsReader {
     }
 }
 
-#[async_trait::async_trait]
 impl ServiceInfo for SettingsReader {
-    fn get_service_name(&self) -> rust_extensions::StrOrString<'static> {
-        env!("CARGO_PKG_NAME").into()
+    fn get_service_name(&self) -> &'static str {
+        env!("CARGO_PKG_NAME")
     }
-    fn get_service_version(&self) -> rust_extensions::StrOrString<'static> {
-        env!("CARGO_PKG_VERSION").into()
+    fn get_service_version(&self) -> &'static str {
+        env!("CARGO_PKG_VERSION")
     }
 }
 ```
 
 # Features overview
-| Feature                     | Description                                                                                                    | Settings implementation                                                                                                                                                                                                                           |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [default](#default)         | /api/isalive endpoint,  telemetry, and seq logger enabled by default. Also, you can define custom http routes. | [my_telemetry_writer::MyTelemetrySettings](https://github.com/MyJetTools/my-telemetry-writer), [my_seq_logger::SeqSettings](https://github.com/MyJetTools/my-seq-logger) and [service_sdk::ServiceInfo](#recommended-serviceinfo-implementation). |
-| [service-bus](#service-bus) | Allows to make SB subscribe and get SB publishers                                                              | [my_service_bus_tcp_client::MyServiceBusSettings](https://github.com/MyJetTools/my-service-bus-tcp-client)                                                                                                                                        |
-| [no-sql](#nosql)            | Allows to get NS subscribers                                                                                   | [my_no_sql_tcp_reader::MyNoSqlTcpConnectionSettings](https://github.com/MyJetTools/my-no-sql-tcp-reader)                                                                                                                                          |
-| [grpc-server](#grpc-server) | Allows to bind grpc server implementation                                                                      | -                                                                                                                                                                                                                                                 |
 
-# Recommended ServiceInfo implementation
+The following are **always on** (no feature flag required): `/api/isalive` and `/metrics` HTTP endpoints, Seq logger, my-telemetry writer, settings reader, app-states lifecycle. They come built into `service-sdk` and need only their respective settings traits implemented (`SeqSettings`, `MyTelemetrySettings`, `ServiceInfo`).
 
-```rust,no_run
-#[async_trait::async_trait]
-impl ServiceInfo for SettingsReader {
-    fn get_service_name(&self) -> String {
-        env!("CARGO_PKG_NAME").to_string()
-    }
-    fn get_service_version(&self) -> String {
-        env!("CARGO_PKG_VERSION").to_string()
-    }
-}
-```
+Opt-in features add capabilities on top:
+
+| Feature                       | Enables                                                                                  | Settings traits to implement                                              |
+| ----------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `macros`                      | `SdkSettingsTraits` / `AutoGenerateSettingsTraits` derives + `use_settings!()` / `use_grpc_*!()` / `use_my_no_sql_entity!()` / `use_my_postgres!()` etc. (`SettingsModel` derive comes from `my-settings-reader`.) | —                                                                         |
+| `my-service-bus`              | `register_sb_subscribe`, `get_sb_publisher`, `get_sb_publisher_with_internal_queue`      | `MyServiceBusSettings` (auto-derived as `my_sb_tcp_host_port`)             |
+| `my-nosql-sdk`                | NoSql entity macros only (no I/O)                                                        | —                                                                         |
+| `my-nosql-data-reader-sdk`    | `get_ns_reader` returning `MyNoSqlDataReaderTcp<T>`                                      | `MyNoSqlTcpConnectionSettings` (auto-derived as `my_no_sql_tcp_reader`)    |
+| `my-nosql-data-writer-sdk`    | Enables `my-no-sql-sdk/data-writer` (use `MyNoSqlDataWriter<T>` directly from `my-no-sql-sdk`) | `MyNoSqlWriterSettings` (auto-derived as `my_no_sql_writer`)               |
+| `grpc`                        | `configure_grpc_server` + gRPC client/server macros                                      | —                                                                         |
+| `postgres`                    | `my-postgres` integration                                                                | `PostgresSettings` (auto-derived as `postgres_conn_string`)                |
+| `with-tls`                    | rustls `CryptoProvider` install; required for `wss://` and other TLS-bearing transports  | —                                                                         |
+| `with-ssh`                    | gRPC client/server over SSH tunnel                                                       | —                                                                         |
+| `http-static-files`           | Static-file middleware in `my-http-server`                                               | —                                                                         |
+| `websockets`                  | WebSocket support in `my-http-server`                                                    | —                                                                         |
+| `signal-r`                    | SignalR support in `my-http-server`                                                      | —                                                                         |
+| `full`                        | All of: `my-service-bus`, `my-nosql-sdk`, `my-nosql-data-reader-sdk`, `my-nosql-data-writer-sdk`, `grpc`, `postgres`, `macros` | union of the above                                                        |
 
 # Metrics
-We supports metrics for grpc and http. They enabled by default. You can get it by /metrics url
+We support metrics for gRPC and HTTP. They are enabled by default. You can get them at `/metrics`.
 
 | Type | Feature                                | Description                          | Labels                    |
 | ---- | -------------------------------------- | ------------------------------------ | ------------------------- |
@@ -162,58 +161,46 @@ service_sdk::metrics::histogram!("my_metric_histogram", common_labels)
     .record(duration.as_secs_f64());
 ```
 
-# Default
-setup_http, register_http_routes - there you can pass basic http auth rules and bind controllers.
-
-```rust, no_run
-    service_context.setup_http(None, None)
-    .register_http_routes(|server| {
-        server.register_get(GetAction::new());
-        server.register_post(PostAction::new());
-    });
-```
-
-
-
 # Service Bus
-register_sb_subscribe
+`register_sb_subscribe(callback, delete_on_no_subscribers, single_connection)` — synchronous.
 
 ```rust, no_run
-let mut service_context = ServiceContext::new(settings_reader);
-service_context
-    .register_sb_subscribe(
-            Arc::new(CallbackAccountsSenderJob::new()),
-            TopicQueueType::PermanentWithSingleConnection,
-        )
-        .await;
+let service_context = ServiceContext::new(settings_reader).await;
+service_context.register_sb_subscribe(
+    Arc::new(CallbackAccountsSenderJob::new()),
+    false, // delete_on_no_subscribers
+    true,  // single_connection
+);
 ```
 
-get_sb_publisher
+`get_sb_publisher(do_retries)` — pass `true` to wrap the publisher with retry logic, `false` for fire-and-forget.
+
 ```rust, no_run
-let service_context = ServiceContext::new(settings_reader);
-let sb_publisher: MyServiceBusPublisher<Model> = service_context.get_sb_publisher().await;
+let service_context = ServiceContext::new(settings_reader).await;
+let sb_publisher: MyServiceBusPublisher<Model> = service_context.get_sb_publisher(true);
 ```
 
-get_sb_publisher_with_internal_queue
+`get_sb_publisher_with_internal_queue`
 ```rust, no_run
-let service_context = ServiceContext::new(settings_reader);
-let sb_publisher: PublisherWithInternalQueue<Model> = service_context.get_sb_publisher_with_internal_queue().await;
+let service_context = ServiceContext::new(settings_reader).await;
+let sb_publisher: PublisherWithInternalQueue<Model> = service_context.get_sb_publisher_with_internal_queue();
 ```
 
 # GRPC Server
 
-add_grpc_service - bind grpc server implementation.
+`configure_grpc_server` — register one or more gRPC server implementations on the SDK-managed gRPC server.
 ```rust, no_run
-let service_context = ServiceContext::new(settings_reader);
-let grpc_server = MyCoolGrpcService::new();
-service_context.add_grpc_service(grpc_server).await;
+let mut service_context = ServiceContext::new(settings_reader).await;
+service_context.configure_grpc_server(|builder| {
+    builder.add_grpc_service(MyCoolGrpcService::new());
+});
 ```
 
 # NoSql
-get_ns_reader
+`get_ns_reader` is synchronous — it returns the reader handle immediately; the underlying TCP connection is started later by `start_application`.
 ```rust, no_run
-let service_context = ServiceContext::new(settings_reader);
-let ns_reader: Arc<MyNoSqlDataReader<MyModel>> = service_context.get_ns_reader().await;
+let service_context = ServiceContext::new(settings_reader).await;
+let ns_reader: Arc<MyNoSqlDataReaderTcp<MyModel>> = service_context.get_ns_reader();
 ```
 
 # HTTP server protocol

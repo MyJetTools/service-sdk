@@ -190,6 +190,28 @@ impl ServiceContext {
     }
 
     #[cfg(feature = "my-service-bus")]
+    pub fn register_sb_subscriber_with_suffix_as_env_info<
+        TModel: GetMySbModelTopicId + MySbMessageDeserializer<Item = TModel> + Send + Sync + 'static,
+    >(
+        &self,
+        callback: Arc<dyn SubscriberCallback<TModel> + Send + Sync + 'static>,
+        delete_on_no_subscribers: bool,
+        single_connection: bool,
+    ) -> &Self {
+        let env_info = std::env::var("ENV_INFO")
+            .expect("ENV_INFO env variable is required for register_sb_subscriber_with_suffix_as_env_info");
+
+        self.sb_client.subscribe(
+            format!("{}-{}", self.app_name, env_info),
+            delete_on_no_subscribers,
+            single_connection,
+            callback,
+        );
+
+        self
+    }
+
+    #[cfg(feature = "my-service-bus")]
     pub fn get_sb_publisher<TModel: MySbMessageSerializer + GetMySbModelTopicId>(
         &self,
         do_retries: bool,
