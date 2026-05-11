@@ -13,7 +13,7 @@ use my_no_sql_sdk::reader::*;
 use my_service_bus::{
     abstractions::{
         publisher::{MyServiceBusPublisher, PublisherWithInternalQueue},
-        subscriber::{MySbMessageDeserializer, SubscriberCallback, TopicQueueType},
+        subscriber::{MySbMessageDeserializer, SubscriberCallback},
         GetMySbModelTopicId, MySbMessageSerializer,
     },
     client::{MyServiceBusClient, MyServiceBusSettings},
@@ -181,43 +181,44 @@ impl ServiceContext {
 
     //sb
     #[cfg(feature = "my-service-bus")]
-    pub async fn register_sb_subscribe<
+    pub fn register_sb_subscribe<
         TModel: GetMySbModelTopicId + MySbMessageDeserializer<Item = TModel> + Send + Sync + 'static,
     >(
         &self,
         callback: Arc<dyn SubscriberCallback<TModel> + Send + Sync + 'static>,
-        queue_type: TopicQueueType,
+       delete_on_no_subscribers: bool,
+        single_connection: bool,
     ) -> &Self {
         self.sb_client
-            .subscribe(self.app_name.clone(), queue_type, callback)
-            .await;
+            .subscribe(self.app_name.clone(), delete_on_no_subscribers, single_connection, callback);
 
         self
     }
 
     #[cfg(feature = "my-service-bus")]
-    pub async fn register_sb_subscriber_with_suffix<
+    pub fn register_sb_subscriber_with_suffix<
         TModel: GetMySbModelTopicId + MySbMessageDeserializer<Item = TModel> + Send + Sync + 'static,
     >(
         &self,
         callback: Arc<dyn SubscriberCallback<TModel> + Send + Sync + 'static>,
-        queue_type: TopicQueueType,
+        delete_on_no_subscribers: bool,
+        single_connection: bool,
         suffix: impl Into<StrOrString<'static>>,
     ) -> &Self {
         let suffix: StrOrString<'static> = suffix.into();
         self.sb_client
             .subscribe(
                 format!("{}{}", self.app_name.as_str(), suffix.as_str()),
-                queue_type,
+                delete_on_no_subscribers,
+                single_connection,
                 callback,
-            )
-            .await;
+            );
 
         self
     }
 
     #[cfg(feature = "my-service-bus")]
-    pub async fn get_sb_publisher<TModel: MySbMessageSerializer + GetMySbModelTopicId>(
+    pub fn get_sb_publisher<TModel: MySbMessageSerializer + GetMySbModelTopicId>(
         &self,
         do_retries: bool,
     ) -> MyServiceBusPublisher<TModel> {
@@ -225,7 +226,7 @@ impl ServiceContext {
     }
 
     #[cfg(feature = "my-service-bus")]
-    pub async fn get_sb_publisher_with_internal_queue<
+    pub fn get_sb_publisher_with_internal_queue<
         TModel: MySbMessageSerializer + GetMySbModelTopicId,
     >(
         &self,
