@@ -29,16 +29,16 @@ pub fn generate_sdk_settings_traits(_input: TokenStream) -> TokenStream {
     quote::quote! {
     #[async_trait]
     impl service_sdk::ServiceInfo for SettingsReader {
-        fn get_service_name(&self) -> rust_extensions::StrOrString<'static> {
+        fn get_service_name(&self) -> &'static str {
             if let Ok(suffix) = std::env::var("SERVICE_NAME_SUFFIX") {
                 return format!("{}-{}", env!("CARGO_PKG_NAME"), suffix).into();
             }else{
-                env!("CARGO_PKG_NAME").into()
+                env!("CARGO_PKG_NAME")
             }
 
         }
-        fn get_service_version(&self) -> rust_extensions::StrOrString<'static> {
-            env!("CARGO_PKG_VERSION").into()
+        fn get_service_version(&self) -> &'static str {
+            env!("CARGO_PKG_VERSION")
         }
     }
 
