@@ -1,7 +1,7 @@
 use my_http_server::{ListenAddr, MyHttpServer};
 use my_logger::my_seq_logger::{SeqLogger, SeqSettings};
 use my_telemetry::my_telemetry_writer::{MyTelemetrySettings, MyTelemetryWriter};
-use rust_extensions::{AppStates, MyTimer, StrOrString};
+use rust_extensions::{AppStates, MyTimer};
 
 #[cfg(feature = "my-nosql-data-writer-sdk")]
 use my_no_sql_sdk::data_writer::MyNoSqlWriterSettings;
@@ -203,9 +203,9 @@ impl ServiceContext {
         callback: Arc<dyn SubscriberCallback<TModel> + Send + Sync + 'static>,
         delete_on_no_subscribers: bool,
         single_connection: bool,
-        suffix: impl Into<StrOrString<'static>>,
+        suffix: impl Into<rust_extensions::StrOrString<'static>>,
     ) -> &Self {
-        let suffix: StrOrString<'static> = suffix.into();
+        let suffix: rust_extensions::StrOrString<'static> = suffix.into();
         self.sb_client
             .subscribe(
                 format!("{}{}", self.app_name, suffix.as_str()),
