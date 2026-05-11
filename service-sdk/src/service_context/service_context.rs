@@ -32,8 +32,8 @@ pub struct ServiceContext {
 
     pub telemetry_writer: MyTelemetryWriter,
     pub app_states: Arc<AppStates>,
-    pub app_name: StrOrString<'static>,
-    pub app_version: StrOrString<'static>,
+    pub app_name: &'static str,
+    pub app_version: &'static str,
     pub background_timers: Vec<MyTimer>,
     #[cfg(feature = "my-nosql-data-reader-sdk")]
     pub my_no_sql_connection: Arc<MyNoSqlTcpConnection>,
@@ -57,21 +57,21 @@ impl ServiceContext {
         let app_version = settings_reader.get_service_version();
 
         my_logger::LOGGER
-            .populate_app_and_version(app_name.clone(), app_version.clone())
+            .populate_app_and_version(app_name, app_version)
             .await;
 
         SeqLogger::enable_from_connection_string(settings_reader.clone()).await;
 
         #[cfg(feature = "my-nosql-data-reader-sdk")]
         let my_no_sql_connection = Arc::new(MyNoSqlTcpConnection::new(
-            app_name.clone(),
+            app_name,
             settings_reader.clone(),
         ));
 
         #[cfg(feature = "my-service-bus")]
         let sb_client = Arc::new(MyServiceBusClient::new(
-            app_name.clone(),
-            app_version.clone(),
+            app_name,
+            app_version,
             settings_reader.clone(),
             my_logger::LOGGER.clone(),
         ));
@@ -79,9 +79,9 @@ impl ServiceContext {
         println!("Initialized service context");
 
         Self {
-            http_server_builder: HttpServerBuilder::new(app_name.clone(), app_version.clone()),
+            http_server_builder: HttpServerBuilder::new(app_name, app_version),
             http_servers: vec![],
-            telemetry_writer: MyTelemetryWriter::new(app_name.clone(), settings_reader.clone()),
+            telemetry_writer: MyTelemetryWriter::new(app_name, settings_reader.clone()),
             app_states,
             #[cfg(feature = "my-nosql-data-reader-sdk")]
             my_no_sql_connection,
@@ -157,7 +157,7 @@ impl ServiceContext {
 
         #[cfg(feature = "grpc")]
         if let Some(grpc_server_builder) = self.grpc_server_builder.as_mut() {
-            grpc_server_builder.start(self.app_name.as_str());
+            grpc_server_builder.start(self.app_name);
         }
 
         println!("Application is stated");
@@ -190,7 +190,7 @@ impl ServiceContext {
         single_connection: bool,
     ) -> &Self {
         self.sb_client
-            .subscribe(self.app_name.clone(), delete_on_no_subscribers, single_connection, callback);
+            .subscribe(self.app_name, delete_on_no_subscribers, single_connection, callback);
 
         self
     }
@@ -208,7 +208,7 @@ impl ServiceContext {
         let suffix: StrOrString<'static> = suffix.into();
         self.sb_client
             .subscribe(
-                format!("{}{}", self.app_name.as_str(), suffix.as_str()),
+                format!("{}{}", self.app_name, suffix.as_str()),
                 delete_on_no_subscribers,
                 single_connection,
                 callback,

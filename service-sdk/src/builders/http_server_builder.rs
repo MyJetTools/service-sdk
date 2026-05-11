@@ -9,7 +9,6 @@ use my_http_server::controllers::{
     {actions::*, AuthErrorFactory, ControllersAuthorization, ControllersMiddleware},
 };
 use my_http_server::{HttpServerMiddleware, MyHttpServer};
-use rust_extensions::StrOrString;
 
 use crate::{MetricsMiddleware, MetricsTechMiddleware};
 
@@ -136,12 +135,12 @@ impl HttpServerConfig {
     fn build(
         &mut self,
         my_http_server: &mut MyHttpServer,
-        app_name: StrOrString<'static>,
-        app_version: StrOrString<'static>,
+        app_name: &'static str,
+        app_version: &'static str,
     ) {
         let is_alive = IsAliveMiddleware::new(
-            app_name.as_str().to_string(),
-            app_version.as_str().to_string(),
+            app_name.to_string(),
+            app_version.to_string(),
         );
         my_http_server.add_middleware(Arc::new(is_alive));
         my_http_server.add_middleware(Arc::new(MetricsMiddleware));
@@ -154,7 +153,7 @@ impl HttpServerConfig {
         if let Some(controllers) = self.controllers.take() {
             let controllers = Arc::new(controllers);
             let swagger_middleware =
-                SwaggerMiddleware::new(controllers.clone(), app_name.clone(), app_version.clone());
+                SwaggerMiddleware::new(controllers.clone(), app_name, app_version);
 
             my_http_server.add_middleware(Arc::new(swagger_middleware));
 
@@ -169,8 +168,8 @@ impl HttpServerConfig {
 pub struct HttpServerBuilder {
     listen_address: SocketAddr,
 
-    app_name: StrOrString<'static>,
-    app_version: StrOrString<'static>,
+    app_name: &'static str,
+    app_version: &'static str,
 
     tcp: HttpServerConfig,
 
@@ -181,7 +180,7 @@ pub struct HttpServerBuilder {
     mode: super::UnixSocketMode,
 }
 impl HttpServerBuilder {
-    pub fn new(app_name: StrOrString<'static>, app_version: StrOrString<'static>) -> Self {
+    pub fn new(app_name: &'static str, app_version: &'static str) -> Self {
         #[cfg(unix)]
         let mode = super::UnixSocketMode::default();
         Self {
@@ -342,8 +341,8 @@ impl HttpServerBuilder {
 
             unix_socket.build(
                 &mut my_http_server,
-                self.app_name.clone(),
-                self.app_version.clone(),
+                self.app_name,
+                self.app_version,
             );
             result.push(my_http_server);
         }
@@ -351,8 +350,8 @@ impl HttpServerBuilder {
         let mut my_http_server = MyHttpServer::new(self.listen_address);
         self.tcp.build(
             &mut my_http_server,
-            self.app_name.clone(),
-            self.app_version.clone(),
+            self.app_name,
+            self.app_version,
         );
 
         result.push(my_http_server);
