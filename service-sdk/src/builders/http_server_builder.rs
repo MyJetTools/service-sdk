@@ -325,11 +325,6 @@ impl HttpServerBuilder {
         return self;
     }
 
-    #[cfg(unix)]
-    pub fn get_unix_socket_mode(&self) -> super::UnixSocketMode {
-        self.mode
-    }
-
     pub fn build(&mut self) -> Vec<MyHttpServer> {
         let mut result = vec![];
         #[cfg(unix)]
@@ -347,14 +342,20 @@ impl HttpServerBuilder {
             result.push(my_http_server);
         }
 
-        let mut my_http_server = MyHttpServer::new(self.listen_address);
-        self.tcp.build(
-            &mut my_http_server,
-            self.app_name,
-            self.app_version,
-        );
+        #[cfg(unix)]
+        let tcp_enabled = self.mode.tcp_enabled();
+        #[cfg(not(unix))]
+        let tcp_enabled = true;
 
-        result.push(my_http_server);
+        if tcp_enabled {
+            let mut my_http_server = MyHttpServer::new(self.listen_address);
+            self.tcp.build(
+                &mut my_http_server,
+                self.app_name,
+                self.app_version,
+            );
+            result.push(my_http_server);
+        }
 
         result
     }

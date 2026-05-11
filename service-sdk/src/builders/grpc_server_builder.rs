@@ -99,21 +99,28 @@ impl GrpcServerBuilder {
             };
         }
 
-        match self.server.take() {
-            Some(server) => {
-                let server = server.add_service(svc);
-                self.server = Some(server);
-            }
-            None => {
-                let layer = tower::ServiceBuilder::new()
-                    .layer(GrpcMetricsMiddlewareLayer::default())
-                    .into_inner();
+        #[cfg(unix)]
+        let tcp_enabled = self.mode.tcp_enabled();
+        #[cfg(not(unix))]
+        let tcp_enabled = true;
 
-                let server = Server::builder().layer(layer).add_service(svc);
+        if tcp_enabled {
+            match self.server.take() {
+                Some(server) => {
+                    let server = server.add_service(svc);
+                    self.server = Some(server);
+                }
+                None => {
+                    let layer = tower::ServiceBuilder::new()
+                        .layer(GrpcMetricsMiddlewareLayer::default())
+                        .into_inner();
 
-                self.server = Some(server);
-            }
-        };
+                    let server = Server::builder().layer(layer).add_service(svc);
+
+                    self.server = Some(server);
+                }
+            };
+        }
     }
 
     #[deprecated(note = "Please use add_grpc_service several times")]
@@ -156,14 +163,21 @@ impl GrpcServerBuilder {
             start_grpc_server_as_unix_socket(grpc_server, unix_socket_name.to_string());
         }
 
-        if let Some(grpc_server) = self.server.take() {
-            let grpc_addr = if let Some(taken) = self.listen_address {
-                taken
-            } else {
-                let grpc_port = get_grpc_port();
-                SocketAddr::new(crate::consts::get_default_ip_address(), grpc_port)
-            };
-            start_grpc_server(grpc_server, grpc_addr);
+        #[cfg(unix)]
+        let tcp_enabled = self.mode.tcp_enabled();
+        #[cfg(not(unix))]
+        let tcp_enabled = true;
+
+        if tcp_enabled {
+            if let Some(grpc_server) = self.server.take() {
+                let grpc_addr = if let Some(taken) = self.listen_address {
+                    taken
+                } else {
+                    let grpc_port = get_grpc_port();
+                    SocketAddr::new(crate::consts::get_default_ip_address(), grpc_port)
+                };
+                start_grpc_server(grpc_server, grpc_addr);
+            }
         }
     }
 }

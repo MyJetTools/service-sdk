@@ -11,16 +11,15 @@ Minimal sample app:
 ```rust,no_run
 #[tokio::main]
 async fn main() {
-    let settings_reader = Arc::new(SettingsReader::new(".service_settings").await);
-    let settings = settings_reader.get_settings().await;
+    let settings_reader = Arc::new(SettingsReader::new("~/.service_settings").await);
 
-    let mut service_context = ServiceContext::new(settings_reader);
+    let mut service_context = ServiceContext::new(settings_reader).await;
 
-    service_context.setup_http(None, None)
-    .register_http_routes(|server| {
-        server.register_get(GetAction::new());
-        server.register_post(PostAction::new());
-    });
+    // /api/isalive and /metrics are registered automatically.
+    // Use configure_http_server only to add additional routes.
+    // service_context.configure_http_server(|http| {
+    //     http.register_get_action(Arc::new(GetAction::new()));
+    // });
 
     service_context.start_application().await;
 }
@@ -28,38 +27,79 @@ async fn main() {
 
 Settings Model:
 
+Two patterns are supported.
+
+**Recommended — derive macros.** Field names must match what the
+auto-derive expects (`seq_conn_string`, `my_telemetry`, plus
+feature-gated `postgres_conn_string`, `my_sb_tcp_host_port`,
+`my_no_sql_tcp_reader`, `my_no_sql_writer`):
+
+```rust,no_run
+service_sdk::macros::use_settings!();
+
+#[derive(SettingsModel, Serialize, Deserialize, Debug, Clone)]
+pub struct SettingsModel {
+    pub seq_conn_string: String,
+    #[serde(default)]
+    pub my_telemetry: Option<String>,
+}
+
+// `SdkSettingsTraits` generates `impl ServiceInfo for SettingsReader`
+// from CARGO_PKG_NAME / CARGO_PKG_VERSION (with `SERVICE_NAME_SUFFIX` env
+// override). Apply it to a struct literally named `SettingsReader`.
+#[derive(SdkSettingsTraits)]
+pub struct SettingsReader {
+    pub settings: tokio::sync::RwLock<Arc<SettingsModel>>,
+}
+
+// `AutoGenerateSettingsTraits` generates impls for `SeqSettings`,
+// `MyTelemetrySettings`, and the feature-gated traits (Postgres / NoSql
+// reader+writer / ServiceBus) — all reading from `self.settings.read().await`.
+#[derive(AutoGenerateSettingsTraits)]
+struct SettingsAutoImpls;
+```
+
+YAML shape — snake_case, mirroring the field names:
+
+```yaml
+seq_conn_string: http://seq.local:5341
+my_telemetry: null
+```
+
+**Manual — without the derive macros.** Useful when field names differ
+from the macro-hardcoded ones or values come from non-standard sources:
+
 ```rust,no_run
 #[derive(SettingsModel, Serialize, Deserialize, Debug, Clone)]
 pub struct SettingsModel {
-    #[serde(rename = "MyTelemetry")]
-    pub my_telemetry: String,
-    #[serde(rename = "Seq")]
-    pub seq: String,
+    pub seq_conn_string: String,
+    #[serde(default)]
+    pub my_telemetry: Option<String>,
 }
+
+pub struct SettingsReader { /* your wrapper around the model */ }
 
 #[async_trait::async_trait]
 impl my_telemetry_writer::MyTelemetrySettings for SettingsReader {
-    async fn get_telemetry_url(&self) -> String {
-        let read_access = self.settings.read().await;
-        read_access.my_telemetry.clone()
+    async fn get_telemetry_url(&self) -> Option<String> {
+        /* ... */
     }
 }
 
 #[async_trait::async_trait]
 impl my_seq_logger::SeqSettings for SettingsReader {
     async fn get_conn_string(&self) -> String {
-        let read_access = self.settings.read().await;
-        read_access.seq.clone()
+        /* ... */
     }
 }
 
 #[async_trait::async_trait]
 impl ServiceInfo for SettingsReader {
-    fn get_service_name(&self) -> String {
-        env!("CARGO_PKG_NAME").to_string()
+    fn get_service_name(&self) -> rust_extensions::StrOrString<'static> {
+        env!("CARGO_PKG_NAME").into()
     }
-    fn get_service_version(&self) -> String {
-        env!("CARGO_PKG_VERSION").to_string()
+    fn get_service_version(&self) -> rust_extensions::StrOrString<'static> {
+        env!("CARGO_PKG_VERSION").into()
     }
 }
 ```
@@ -176,26 +216,19 @@ let service_context = ServiceContext::new(settings_reader);
 let ns_reader: Arc<MyNoSqlDataReader<MyModel>> = service_context.get_ns_reader().await;
 ```
 
-# HTTP server protocol selection
+# HTTP server protocol
 
-The HTTP version for TCP listeners is controlled via env vars:
-
-| Env var    | Effect                                                  |
-| ---------- | ------------------------------------------------------- |
-| `HTTP2=1`  | TCP listener serves HTTP/2                              |
-| `HTTP1=1`  | TCP listener serves HTTP/1                              |
-| (unset)    | TCP listener serves auto-negotiated HTTP/1 + HTTP/2     |
+HTTP/1 vs HTTP/2 is auto-detected per connection by `my_http_server` — no explicit configuration is required for either the TCP listener or the unix-socket listener.
 
 # Unix socket
 
-On unix platforms an additional unix-socket listener can be enabled alongside the TCP listener via the `UNIX_SOCKET` env var. The socket path is `~/http/<service-name>`.
+On unix platforms a unix-socket listener can be enabled via the `UNIX_SOCKET` env var. Socket paths are fixed: `~/http/<service-name>` for HTTP and `~/grpc/<service-name>` for gRPC (when the `grpc` feature is enabled).
 
-| `UNIX_SOCKET` value     | Unix listener | Protocol         |
-| ----------------------- | ------------- | ---------------- |
-| (unset / unknown)       | off           | —                |
-| `1` / `AUTO`            | on            | auto h1/h2       |
-| `H1` / `HTTP1`          | on            | HTTP/1           |
-| `H2` / `HTTP2`          | on            | HTTP/2           |
+| `UNIX_SOCKET` value         | TCP listener | Unix-socket listener |
+| --------------------------- | ------------ | -------------------- |
+| (unset)                     | on           | off                  |
+| `ONLY` (case-insensitive)   | off          | on                   |
+| any other value (e.g. `1`)  | on           | on (additional)      |
 
-The TCP listener is always started; `HTTP1`/`HTTP2` env vars affect only the TCP listener, while `UNIX_SOCKET` controls the unix-socket listener independently.
+`ONLY` disables the TCP listener and serves exclusively over the unix socket. This applies to both HTTP and gRPC servers.
 
