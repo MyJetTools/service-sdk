@@ -1,3 +1,4 @@
+use arc_swap::ArcSwap;
 use my_http_server::MyHttpServer;
 use my_logger::my_seq_logger::{SeqLogger, SeqSettings};
 use my_telemetry::my_telemetry_writer::{MyTelemetrySettings, MyTelemetryWriter};
@@ -21,7 +22,7 @@ use my_service_bus::{
 
 use std::{sync::Arc, time::Duration};
 
-use crate::{HttpServerBuilder, ServiceInfo};
+use crate::{EventsPerSecondCounter, EventsPerSecondTimerTick, HttpServerBuilder, ServiceInfo};
 
 #[cfg(feature = "grpc")]
 use crate::GrpcServerBuilder;
@@ -35,6 +36,7 @@ pub struct ServiceContext {
     pub app_name: &'static str,
     pub app_version: &'static str,
     pub background_timers: Vec<MyTimer>,
+    events_per_second_counters: Arc<ArcSwap<Vec<Arc<EventsPerSecondCounter>>>>,
     #[cfg(feature = "my-nosql-data-reader-sdk")]
     pub my_no_sql_connection: Arc<MyNoSqlTcpConnection>,
     #[cfg(feature = "my-service-bus")]
@@ -78,6 +80,18 @@ impl ServiceContext {
 
         println!("Initialized service context");
 
+        let events_per_second_counters: Arc<ArcSwap<Vec<Arc<EventsPerSecondCounter>>>> =
+            Arc::new(ArcSwap::from_pointee(Vec::new()));
+
+        let mut events_per_second_timer = MyTimer::new(Duration::from_secs(1));
+        events_per_second_timer.set_first_tick_before_delay();
+        events_per_second_timer.register_timer(
+            "EventsPerSecond",
+            Arc::new(EventsPerSecondTimerTick {
+                counters: events_per_second_counters.clone(),
+            }),
+        );
+
         Self {
             http_server_builder: HttpServerBuilder::new(app_name, app_version),
             http_servers: vec![],
@@ -91,8 +105,22 @@ impl ServiceContext {
             app_version,
             #[cfg(feature = "grpc")]
             grpc_server_builder: None,
-            background_timers: vec![],
+            background_timers: vec![events_per_second_timer],
+            events_per_second_counters,
         }
+    }
+
+    pub fn register_events_per_second(
+        &self,
+        metric_name: impl Into<String>,
+    ) -> Arc<EventsPerSecondCounter> {
+        let counter = Arc::new(EventsPerSecondCounter::new(metric_name));
+        self.events_per_second_counters.rcu(|prev| {
+            let mut new: Vec<Arc<EventsPerSecondCounter>> = (**prev).clone();
+            new.push(counter.clone());
+            Arc::new(new)
+        });
+        counter
     }
 
     pub fn register_timer(&mut self, duration: Duration, builder: impl Fn(&mut MyTimer)) {

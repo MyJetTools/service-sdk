@@ -161,6 +161,35 @@ service_sdk::metrics::histogram!("my_metric_histogram", common_labels)
     .record(duration.as_secs_f64());
 ```
 
+### Events-per-second metrics
+
+If you want a gauge that exposes "events per second" (events accumulated over the last second), register an `EventsPerSecondCounter` once on the `ServiceContext` and just `.increment()` on the returned handle from anywhere in your code. The SDK runs an internal 1-second background timer that snapshots the accumulated value, resets the counter to zero, and emits a Prometheus gauge under the name you registered. The metric name is used as-is — no suffix is added.
+
+```rust, no_run
+let counter = service_context.register_events_per_second("my_events_per_second");
+
+// +1, no labels
+counter.increment();
+
+// +N, no labels
+counter.increment_by(5);
+
+// +1, with labels — label sets are dynamic, new combinations appear
+// in /metrics on the next tick automatically.
+counter.increment_with_labels(&[("endpoint", "foo")]);
+
+// +N, with labels
+counter.increment_by_with_labels(3, &[("endpoint", "bar")]);
+```
+
+The resulting `/metrics` output looks like:
+
+```text
+my_events_per_second 12
+my_events_per_second{endpoint="foo"} 7
+my_events_per_second{endpoint="bar"} 3
+```
+
 # Service Bus
 `register_sb_subscribe(callback, delete_on_no_subscribers, single_connection)` — synchronous.
 
