@@ -138,10 +138,7 @@ impl HttpServerConfig {
         app_name: &'static str,
         app_version: &'static str,
     ) {
-        let is_alive = IsAliveMiddleware::new(
-            app_name.to_string(),
-            app_version.to_string(),
-        );
+        let is_alive = IsAliveMiddleware::new(app_name, app_version);
         my_http_server.add_middleware(Arc::new(is_alive));
         my_http_server.add_middleware(Arc::new(MetricsMiddleware));
         my_http_server.add_tech_middleware(Arc::new(MetricsTechMiddleware));
