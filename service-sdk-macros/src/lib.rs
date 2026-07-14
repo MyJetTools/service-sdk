@@ -207,7 +207,6 @@ pub fn use_my_http_server(_input: TokenStream) -> TokenStream {
         use service_sdk::my_http_server;
         use my_http_server::macros::*;
         use my_http_server::*;
-        use service_sdk::my_http_server::types::*;
     }
     .into()
 }
