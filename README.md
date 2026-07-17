@@ -215,6 +215,50 @@ let service_context = ServiceContext::new(settings_reader).await;
 let sb_publisher: PublisherWithInternalQueue<Model> = service_context.get_sb_publisher_with_internal_queue();
 ```
 
+# GRPC Client
+
+`use_grpc_client!()` pulls in everything `#[generate_grpc_client]` expands to. Urls are resolved through `GrpcClientSettings::get_grpc_url(name)`.
+
+```rust, no_run
+service_sdk::macros::use_grpc_client!();
+
+#[generate_grpc_client(
+    proto_file: "./proto/KeyValue.proto",
+    crate_ns: "crate::keyvalue_grpc",
+    retries: 3,
+    request_timeout_sec: 5,
+    ping_timeout_sec: 5,
+    ping_interval_sec: 5,
+)]
+pub struct KeyValueGrpcClient;
+```
+
+### Client pool
+
+When the same service has many instances, each addressed by a runtime key (shard / tenant / node), use `use_grpc_client_pool!()` with `#[generate_grpc_client_pool]`. It generates the same client plus a `{StructName}Pool`.
+
+```rust, no_run
+service_sdk::macros::use_grpc_client_pool!();
+
+#[generate_grpc_client_pool(
+    proto_file: "./proto/KeyValue.proto",
+    crate_ns: "crate::keyvalue_grpc",
+    retries: 3,
+    request_timeout_sec: 5,
+    ping_timeout_sec: 5,
+    ping_interval_sec: 5,
+)]
+pub struct KeyValueGrpcClient;
+```
+
+Because each pooled instance may point elsewhere, urls come from `GrpcClientPoolSettings::get_grpc_url(name, id)`, which additionally receives the id. Clients are created lazily per id; `gc` drops every id not passed to it, tearing down its ping loop and channel.
+
+```rust, no_run
+let pool = KeyValueGrpcClientPool::new(settings);
+let client = pool.get_grpc_client("shard-1").await; // Arc<KeyValueGrpcClient>, created on demand
+pool.gc(&["shard-1", "shard-2"]).await;             // every other id is dropped
+```
+
 # GRPC Server
 
 `configure_grpc_server` — register one or more gRPC server implementations on the SDK-managed gRPC server.

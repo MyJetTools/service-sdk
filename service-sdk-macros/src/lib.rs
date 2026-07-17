@@ -134,6 +134,19 @@ pub fn use_grpc_client(_input: TokenStream) -> TokenStream {
     .into()
 }
 
+/// Imports for [`generate_grpc_client_pool`]. Unlike `use_grpc_client!()` this omits `my_logger`,
+/// which no generated client references.
+#[proc_macro]
+pub fn use_grpc_client_pool(_input: TokenStream) -> TokenStream {
+    quote::quote! {
+        use service_sdk::my_grpc_extensions;
+        use service_sdk::my_grpc_extensions::client::generate_grpc_client_pool;
+        use service_sdk::my_telemetry;
+        use service_sdk::async_trait;
+    }
+    .into()
+}
+
 #[proc_macro]
 pub fn use_grpc_server(_input: TokenStream) -> TokenStream {
     quote::quote! {
