@@ -21,13 +21,10 @@ pub struct HttpServerConfig {
 
 impl HttpServerConfig {
     pub fn set_authorization(&mut self, authorization: ControllersAuthorization) {
-        if self.controllers.is_none() {
-            self.controllers = Some(ControllersMiddleware::new(Some(authorization), None));
+        if let Some(controllers) = self.controllers.as_mut() {
+            controllers.update_authorization_map(authorization);
         } else {
-            self.controllers
-                .as_mut()
-                .unwrap()
-                .update_authorization_map(authorization);
+            self.controllers = Some(ControllersMiddleware::new(Some(authorization), None));
         }
     }
 
@@ -35,13 +32,10 @@ impl HttpServerConfig {
         &mut self,
         value: Arc<impl AuthErrorFactory + Send + Sync + 'static>,
     ) {
-        if self.controllers.is_none() {
-            self.controllers = Some(ControllersMiddleware::new(None, Some(value)));
+        if let Some(controllers) = self.controllers.as_mut() {
+            controllers.update_auth_error_factory(value);
         } else {
-            self.controllers
-                .as_mut()
-                .unwrap()
-                .update_auth_error_factory(value);
+            self.controllers = Some(ControllersMiddleware::new(None, Some(value)));
         }
     }
 
@@ -241,7 +235,7 @@ impl HttpServerBuilder {
         }
 
         self.tcp.add_auth_middleware(middleware);
-        return self;
+        self
     }
 
     pub fn register_get_action(
@@ -255,7 +249,7 @@ impl HttpServerBuilder {
         }
 
         self.tcp.register_get_action(action);
-        return self;
+        self
     }
 
     pub fn register_post_action(
@@ -277,7 +271,7 @@ impl HttpServerBuilder {
 
         self.tcp.register_post_action(action);
 
-        return self;
+        self
     }
 
     pub fn register_put_action(
@@ -291,7 +285,7 @@ impl HttpServerBuilder {
         }
 
         self.tcp.register_put_action(action);
-        return self;
+        self
     }
 
     pub fn register_delete_action(
@@ -305,7 +299,7 @@ impl HttpServerBuilder {
         }
 
         self.tcp.register_delete_action(action);
-        return self;
+        self
     }
 
     pub fn register_options_action(
@@ -319,7 +313,7 @@ impl HttpServerBuilder {
         }
 
         self.tcp.register_options_action(action);
-        return self;
+        self
     }
 
     pub fn build(&mut self) -> Vec<MyHttpServer> {

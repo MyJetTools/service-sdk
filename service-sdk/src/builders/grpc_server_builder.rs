@@ -42,6 +42,12 @@ pub struct GrpcServerBuilder {
     listen_address: Option<SocketAddr>,
 }
 
+impl Default for GrpcServerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GrpcServerBuilder {
     pub fn new() -> Self {
         Self {
@@ -88,7 +94,7 @@ impl GrpcServerBuilder {
                 }
                 None => {
                     let layer = tower::ServiceBuilder::new()
-                        .layer(GrpcMetricsMiddlewareLayer::default())
+                        .layer(GrpcMetricsMiddlewareLayer)
                         .into_inner();
 
                     let server_unix_socket =
@@ -112,7 +118,7 @@ impl GrpcServerBuilder {
                 }
                 None => {
                     let layer = tower::ServiceBuilder::new()
-                        .layer(GrpcMetricsMiddlewareLayer::default())
+                        .layer(GrpcMetricsMiddlewareLayer)
                         .into_inner();
 
                     let server = Server::builder().layer(layer).add_service(svc);
@@ -144,7 +150,7 @@ impl GrpcServerBuilder {
         >,
     ) {
         let layer = tower::ServiceBuilder::new()
-            .layer(GrpcMetricsMiddlewareLayer::default())
+            .layer(GrpcMetricsMiddlewareLayer)
             .into_inner();
 
         let mut server = Server::builder().layer(layer);
@@ -204,7 +210,7 @@ fn start_grpc_server(
 ) {
     my_logger::LOGGER.write_info(
         "Starting GRPC Server".to_string(),
-        format!("GRPC server starts at: {:?}", &grpc_addr),
+        format!("GRPC server starts at: {:?}", grpc_addr),
         LogEventCtx::new(),
     );
 
@@ -225,7 +231,7 @@ fn start_grpc_server_as_unix_socket(
 ) {
     my_logger::LOGGER.write_info(
         "Starting GRPC Server".to_string(),
-        format!("GRPC server starts at: {:?}", &unix_socket_addr),
+        format!("GRPC server starts at: {:?}", unix_socket_addr),
         LogEventCtx::new(),
     );
 
@@ -274,7 +280,7 @@ impl GrpcServer {
 
         my_logger::LOGGER.write_info(
             "Starting GRPC Server".to_string(),
-            format!("GRPC server starts at: {:?}", &unix_socket_addr),
+            format!("GRPC server starts at: {:?}", unix_socket_addr),
             LogEventCtx::new(),
         );
 

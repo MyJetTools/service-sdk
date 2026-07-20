@@ -276,6 +276,28 @@ let service_context = ServiceContext::new(settings_reader).await;
 let ns_reader: Arc<MyNoSqlDataReaderTcp<MyModel>> = service_context.get_ns_reader();
 ```
 
+# Background timers
+
+Register background timers on the `ServiceContext` before `start_application`; the SDK starts them for you (they wait for the app to become initialized and stop on shutdown). Tick logic implements `rust_extensions::MyTimerTick`.
+
+`register_timer` runs a `MyTimer`, which sleeps `duration` between ticks:
+
+```rust, no_run
+service_context.register_timer(Duration::from_secs(30), |timer| {
+    timer.register_timer("MyTick", Arc::new(MyTick));
+});
+```
+
+`register_exact_timer` runs a `MyExactTimer`, which fires on aligned wall-clock marks of an `ExactTimerInterval` (`Every5Seconds` → `:00, :05, :10 …`) with no drift, instead of sleeping between ticks. The tick type is the same `MyTimerTick`, so an existing tick can be registered on either timer:
+
+```rust, no_run
+use service_sdk::rust_extensions::ExactTimerInterval;
+
+service_context.register_exact_timer(ExactTimerInterval::Every5Seconds, |timer| {
+    timer.register_timer("MyTick", Arc::new(MyTick));
+});
+```
+
 # HTTP server protocol
 
 HTTP/1 vs HTTP/2 is auto-detected per connection by `my_http_server` — no explicit configuration is required for either the TCP listener or the unix-socket listener.

@@ -314,5 +314,5 @@ pub fn generate_grpc_service(input: TokenStream) -> TokenStream {
         return crate::generate_grpc_service::with_params(input);
     }
 
-    return crate::generate_grpc_service::max_hardcoded(input);
+    crate::generate_grpc_service::max_hardcoded(input)
 }

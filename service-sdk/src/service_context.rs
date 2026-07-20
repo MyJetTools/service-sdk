@@ -2,7 +2,7 @@ use arc_swap::ArcSwap;
 use my_http_server::MyHttpServer;
 use my_logger::my_seq_logger::{SeqLogger, SeqSettings};
 use my_telemetry::my_telemetry_writer::{MyTelemetrySettings, MyTelemetryWriter};
-use rust_extensions::{AppStates, MyTimer};
+use rust_extensions::{AppStates, ExactTimerInterval, MyExactTimer, MyTimer};
 
 #[cfg(feature = "my-nosql-data-writer-sdk")]
 use my_no_sql_sdk::data_writer::MyNoSqlWriterSettings;
@@ -36,6 +36,7 @@ pub struct ServiceContext {
     pub app_name: &'static str,
     pub app_version: &'static str,
     pub background_timers: Vec<MyTimer>,
+    pub background_exact_timers: Vec<MyExactTimer>,
     events_per_second_counters: Arc<ArcSwap<Vec<Arc<EventsPerSecondCounter>>>>,
     #[cfg(feature = "my-nosql-data-reader-sdk")]
     pub my_no_sql_connection: Arc<MyNoSqlTcpConnection>,
@@ -106,6 +107,7 @@ impl ServiceContext {
             #[cfg(feature = "grpc")]
             grpc_server_builder: None,
             background_timers: vec![events_per_second_timer],
+            background_exact_timers: vec![],
             events_per_second_counters,
         }
     }
@@ -130,6 +132,17 @@ impl ServiceContext {
         self.background_timers.push(timer);
     }
 
+    pub fn register_exact_timer(
+        &mut self,
+        interval: ExactTimerInterval,
+        builder: impl Fn(&mut MyExactTimer),
+    ) {
+        let mut timer = MyExactTimer::new(interval);
+        builder(&mut timer);
+
+        self.background_exact_timers.push(timer);
+    }
+
     pub fn configure_http_server(&mut self, config: impl Fn(&mut HttpServerBuilder)) -> &mut Self {
         config(&mut self.http_server_builder);
         self
@@ -140,6 +153,9 @@ impl ServiceContext {
         self.telemetry_writer
             .start(self.app_states.clone(), my_logger::LOGGER.clone());
         for timer in self.background_timers.iter() {
+            timer.start(self.app_states.clone(), my_logger::LOGGER.clone());
+        }
+        for timer in self.background_exact_timers.iter() {
             timer.start(self.app_states.clone(), my_logger::LOGGER.clone());
         }
         #[cfg(feature = "my-nosql-data-reader-sdk")]
@@ -175,8 +191,7 @@ impl ServiceContext {
     >(
         &self,
     ) -> Arc<my_no_sql_sdk::reader::MyNoSqlDataReaderTcp<TMyNoSqlEntity>> {
-        let reader = self.my_no_sql_connection.get_reader();
-        return reader;
+        self.my_no_sql_connection.get_reader()
     }
 
     //sb
@@ -244,7 +259,7 @@ impl ServiceContext {
         &self,
         do_retries: bool,
     ) -> MyServiceBusPublisher<TModel> {
-        return self.sb_client.get_publisher(do_retries);
+        self.sb_client.get_publisher(do_retries)
     }
 
     #[cfg(feature = "my-service-bus")]
@@ -253,7 +268,7 @@ impl ServiceContext {
     >(
         &self,
     ) -> PublisherWithInternalQueue<TModel> {
-        return self.sb_client.get_publisher_with_internal_queue();
+        self.sb_client.get_publisher_with_internal_queue()
     }
 
     #[cfg(feature = "grpc")]

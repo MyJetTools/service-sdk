@@ -9,6 +9,12 @@ impl MetricsMiddleware {
     }
 }
 
+impl Default for MetricsMiddleware {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl HttpServerMiddleware for MetricsMiddleware {
     async fn handle_request(
