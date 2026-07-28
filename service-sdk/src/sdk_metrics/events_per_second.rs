@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use rust_extensions::MyTimerTick;
+use rust_extensions::{MyTimerTick, RepeatTimerIteration};
 
 type LabelsKey = Vec<(String, String)>;
 type CountersMap = HashMap<LabelsKey, Arc<AtomicU64>>;
@@ -92,10 +92,12 @@ pub(crate) struct EventsPerSecondTimerTick {
 
 #[async_trait]
 impl MyTimerTick for EventsPerSecondTimerTick {
-    async fn tick(&self) {
+    async fn tick(&self) -> RepeatTimerIteration {
         let counters = self.counters.load_full();
         for counter in counters.iter() {
             counter.tick();
         }
+
+        RepeatTimerIteration::WithInterval
     }
 }

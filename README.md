@@ -278,7 +278,25 @@ let ns_reader: Arc<MyNoSqlDataReaderTcp<MyModel>> = service_context.get_ns_reade
 
 # Background timers
 
-Register background timers on the `ServiceContext` before `start_application`; the SDK starts them for you (they wait for the app to become initialized and stop on shutdown). Tick logic implements `rust_extensions::MyTimerTick`.
+Register background timers on the `ServiceContext` before `start_application`; the SDK starts them for you (they wait for the app to become initialized and stop on shutdown). Tick logic implements `rust_extensions::MyTimerTick`, whose `tick` returns a `RepeatTimerIteration` telling the timer loop what to do next:
+
+```rust, no_run
+use service_sdk::rust_extensions::{MyTimerTick, RepeatTimerIteration};
+
+pub struct MyTick;
+
+#[async_trait::async_trait]
+impl MyTimerTick for MyTick {
+    async fn tick(&self) -> RepeatTimerIteration {
+        // ... do the work ...
+
+        // done for now - wait for the next scheduled tick
+        RepeatTimerIteration::WithInterval
+    }
+}
+```
+
+Return `RepeatTimerIteration::Immediately` instead to leave the current iteration and be started again straight away with a fresh `iteration_timeout` window — that is how a long job is done in portions without tripping the timer's per-iteration timeout.
 
 `register_timer` runs a `MyTimer`, which sleeps `duration` between ticks:
 
