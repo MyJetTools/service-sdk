@@ -50,10 +50,14 @@ impl ServiceContext {
     pub async fn new(settings_reader: service_sdk_macros::generate_settings_signature!()) -> Self {
         metrics_prometheus::install();
 
-        #[cfg(feature = "with-tls")]
-        rustls::crypto::ring::default_provider()
-            .install_default()
-            .expect("Failed to install rustls crypto provider");
+        // Either provider feature brings the same `install_default_crypto_providers`
+        // signature; my-tls picks ring when both are on. Idempotent - the first
+        // caller in the process wins.
+        #[cfg(any(
+            feature = "with-ring-tls",
+            feature = "with-rust-tls"
+        ))]
+        my_tls::install_default_crypto_providers();
 
         let app_states = Arc::new(AppStates::create_un_initialized());
         let app_name = settings_reader.get_service_name();

@@ -29,7 +29,14 @@ macros = [
     "my-grpc-extensions?/grpc-client",
 ]
 
-with-ssh = ["my-grpc-extensions?/with-ssh"]
+# Links the SSH stack (my-ssh / libssh2 / openssl-sys). Without it no ssh crate
+# is in the tree at all. Propagated to every dependency that can pull one in.
+with-ssh = [
+    "flurl/with-ssh",
+    "my-grpc-extensions?/with-ssh",
+    "my-no-sql-sdk?/with-ssh",
+    "my-postgres?/with-ssh",
+]
 
 http-static-files = ["my-http-server/static-files"]
 
@@ -49,7 +56,48 @@ websockets = ["my-http-server/websocket"]
 
 grpc = ["dep:futures-core", "dep:my-grpc-extensions", "service-sdk-macros/grpc"]
 
-with-tls = ["my-grpc-extensions?/with-tls", "rustls"]
+# ---------------------------------------------------------------------------
+# rustls TLS. Pick exactly one of the two provider features below.
+#
+# Both link the same TLS stack (my-tls / rustls) and enable the same
+# functionality - `https://` through fl-url, TLS gRPC, client certificates. They
+# differ only in the rustls CryptoProvider, hence the provider in the name.
+#
+# With neither, no rustls / webpki / ring / rcgen / graviola crate is in the tree
+# at all, `ServiceContext` installs no crypto provider, and an `https://` request
+# through fl-url panics at execute time.
+#
+# Postgres TLS is a different stack entirely (openssl) - see `with-postgres-tls`.
+# ---------------------------------------------------------------------------
+
+# ring. The default recommendation: mature and very widely deployed. Costs a
+# bundled C/assembly build, so a C toolchain is required. No aws-lc-sys either
+# way.
+with-ring-tls = [
+    "dep:my-tls",
+    "my-tls/with-ring-crypto-providers",
+    "flurl/with-ring-tls",
+    "my-grpc-extensions?/with-ring-tls",
+]
+
+# Pure Rust, via rustls-graviola - no C toolchain anywhere, no build script.
+# Trade-offs vs ring: graviola builds ONLY on x86_64 and aarch64 (a hard
+# `compile_error!` on any other target) and is a far younger, much less deployed
+# crypto implementation. Prefer `with-ring-tls` unless getting rid of the C
+# toolchain is the point.
+#
+# Enabling both - which `--all-features` does - is not an error: my-tls resolves
+# the conflict in favour of ring, so the more battle-tested provider wins.
+with-rust-tls = [
+    "dep:my-tls",
+    "my-tls/with-rust-crypto-providers",
+    "flurl/with-rust-tls",
+    "my-grpc-extensions?/with-rust-tls",
+]
+
+# Postgres speaks TLS through openssl, not rustls, so it is a separate switch.
+# No-op unless the `postgres` feature is on as well.
+with-postgres-tls = ["my-postgres?/with-tls"]
 
 postgres = [
     "dep:my-postgres",
@@ -92,9 +140,10 @@ my-http-server = { tag = "0.9.0", git = "https://github.com/MyJetTools/my-http-s
     "with-telemetry",
 ] }
 
+# `with-tls` is deliberately NOT listed here - it drags openssl in. It is turned
+# on through the `with-postgres-tls` feature instead.
 my-postgres = { tag = "0.6.0", git = "https://github.com/MyJetTools/my-postgres.git", features = [
     "with-telemetry",
-    "with-tls",
     "macros",
 ], optional = true }
 
@@ -109,10 +158,16 @@ my-settings-reader = { tag = "0.5.0", git = "https://github.com/MyJetTools/my-se
     "background-reader",
 ] }
 
-flurl = { tag = "0.7.0", git = "https://github.com/MyJetTools/fl-url.git" }
+flurl = { tag = "0.7.0", git = "https://github.com/MyJetTools/fl-url.git", default-features = false }
 serde_yaml = { version = "*" }
 
-rustls = { version = "*", optional = true }
+# Only for `install_default_crypto_providers()` in `service_context.rs`. We
+# deliberately do NOT depend on rustls directly: my-tls owns the provider
+# choice, and a direct rustls dep would mean hand-maintaining a duplicate
+# feature list that could silently drift from my-tls' (rustls 0.23 defaults also
+# pull `aws_lc_rs` plus the heavy aws-lc-sys C build). Same tag as the one
+# fl-url uses, so it stays a single instance in the graph.
+my-tls = { tag = "0.1.5", git = "https://github.com/MyJetTools/my-tls.git", optional = true }
 
 futures-core = { version = "*", optional = true }
 

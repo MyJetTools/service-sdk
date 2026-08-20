@@ -118,12 +118,43 @@ Opt-in features add capabilities on top:
 | `my-nosql-data-writer-sdk`    | Enables `my-no-sql-sdk/data-writer` (use `MyNoSqlDataWriter<T>` directly from `my-no-sql-sdk`) | `MyNoSqlWriterSettings` (auto-derived as `my_no_sql_writer`)               |
 | `grpc`                        | `configure_grpc_server` + gRPC client/server macros                                      | —                                                                         |
 | `postgres`                    | `my-postgres` integration                                                                | `PostgresSettings` (auto-derived as `postgres_conn_string`)                |
-| `with-tls`                    | rustls `CryptoProvider` install; required for `wss://` and other TLS-bearing transports  | —                                                                         |
-| `with-ssh`                    | gRPC client/server over SSH tunnel                                                       | —                                                                         |
+| `with-ring-tls`               | rustls TLS with the **ring** crypto provider: links `rustls`/`my-tls` and installs the `CryptoProvider`. Required for `https://` through fl-url, TLS gRPC and other TLS-bearing transports. Without it no `rustls*`/`ring`/`rcgen`/`webpki` crate is compiled in at all. A `with-rust-tls` sibling (pure-Rust provider) is expected later. | — |
+| `with-postgres-tls`           | TLS for postgres (`my-postgres/with-tls`, openssl-based - a separate stack from `with-ring-tls`). No-op unless `postgres` is on too. | — |
+| `with-ssh`                    | SSH tunnels for gRPC, fl-url, my-no-sql and postgres. Without it no `my-ssh`/`ssh2`/`libssh2-sys` crate is compiled in at all. | — |
 | `http-static-files`           | Static-file middleware in `my-http-server`                                               | —                                                                         |
 | `websockets`                  | WebSocket support in `my-http-server`                                                    | —                                                                         |
 | `signal-r`                    | SignalR support in `my-http-server`                                                      | —                                                                         |
-| `full`                        | All of: `my-service-bus`, `my-nosql-sdk`, `my-nosql-data-reader-sdk`, `my-nosql-data-writer-sdk`, `grpc`, `postgres`, `macros` | union of the above                                                        |
+| `full`                        | All of: `my-service-bus`, `my-nosql-sdk`, `my-nosql-data-reader-sdk`, `my-nosql-data-writer-sdk`, `grpc`, `postgres`, `macros`. **Never** includes `with-ring-tls`, `with-postgres-tls` or `with-ssh` - TLS and SSH never ride along with a convenience feature, they are always requested explicitly. | union of the above |
+
+## TLS and SSH are opt-in
+
+Nothing in the default build - and nothing in `full` - links a TLS or an SSH
+stack, and nothing ever will. `full` is a convenience alias for the transport
+and codegen features only; TLS and SSH are always named explicitly, e.g.
+`--features full,with-ring-tls` - that is two separate features, not one.
+
+`cargo tree` on any feature set that does not contain `with-ring-tls`,
+`with-postgres-tls` or `with-ssh` contains no `rustls*`, `ring`, `rcgen`,
+`webpki`, `openssl*`, `my-tls`, `my-ssh`, `ssh2` or `libssh2-sys` crate.
+
+Three independent switches turn them on, because they are three different stacks:
+
+| Feature             | Stack                     | Turned on in                                                        |
+| ------------------- | ------------------------- | ------------------------------------------------------------------- |
+| `with-ring-tls`     | rustls + ring (`my-tls`)  | `flurl`, `my-grpc-extensions`, plus `my_tls::install_default_crypto_providers()` in `ServiceContext::new` |
+| `with-postgres-tls` | openssl (`postgres-openssl`) | `my-postgres`                                                       |
+| `with-ssh`          | libssh2 (`my-ssh`)        | `flurl`, `my-grpc-extensions`, `my-no-sql-sdk`, `my-postgres`        |
+
+`with-postgres-tls` and `with-ssh` are written with optional-dependency syntax
+(`my-postgres?/with-tls`), so they are silently a no-op when the crate they
+target is not enabled - enabling `with-postgres-tls` without `postgres` does not
+pull postgres in.
+
+**Watch out:** without `with-ring-tls`, fl-url has no TLS stack linked, and it
+`panic!`s at request time on any `https://` url. The always-on parts of the SDK
+go through fl-url - the Seq logger, the telemetry writer and the http settings
+reader - so if any of those endpoints is `https://`, `with-ring-tls` is
+mandatory. Turn it on whenever the service talks to anything over https.
 
 # Metrics
 We support metrics for gRPC and HTTP. They are enabled by default. You can get them at `/metrics`.
