@@ -277,6 +277,9 @@ pub fn use_my_sb_subscriber(_input: TokenStream) -> TokenStream {
     }
     .into()
 }
+/// Requires the `signal-r` feature of `service-sdk`; without it the expansion
+/// would reference `my_http_server::signal_r`, which is not compiled in.
+#[cfg(feature = "signal-r")]
 #[proc_macro]
 pub fn use_signal_r_json_contract(_input: TokenStream) -> TokenStream {
     quote::quote! {
@@ -291,6 +294,9 @@ pub fn use_signal_r_json_contract(_input: TokenStream) -> TokenStream {
     .into()
 }
 
+/// Requires the `signal-r` feature of `service-sdk`; without it the expansion
+/// would reference `my_http_server::signal_r`, which is not compiled in.
+#[cfg(feature = "signal-r")]
 #[proc_macro]
 pub fn use_signal_r_subscriber(_input: TokenStream) -> TokenStream {
     quote::quote! {

@@ -11,6 +11,11 @@ my-service-bus = []
 no-sql-reader = []
 no-sql-writer = []
 postgres = []
+# Gates `use_signal_r_json_contract!` / `use_signal_r_subscriber!`. They expand to
+# `use service_sdk::my_http_server::signal_r::...`, and that module only exists
+# when service-sdk' own `signal-r` feature is on - so without this the macros
+# would expand into an unresolved import instead of a readable error.
+signal-r = []
 
 
 [lib]
