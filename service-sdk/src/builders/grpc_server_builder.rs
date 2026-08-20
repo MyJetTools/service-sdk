@@ -12,30 +12,57 @@ use my_grpc_extensions::tonic::{
 
 use my_logger::LogEventCtx;
 
+#[cfg(feature = "with-prometheus-metrics")]
 use crate::GrpcMetricsMiddlewareLayer;
 
 use crate::IntoGrpcServer;
 
+// The gRPC server's type carries its layer stack, so the metrics middleware
+// shows up in every signature that names the server or the router. These two
+// aliases are the single place where that difference lives: with
+// `with-prometheus-metrics` the stack holds the metrics layer, without it no
+// layer is applied at all and tonic's default `Identity` stands - which is also
+// why `tower` is not referenced in that mode.
+#[cfg(feature = "with-prometheus-metrics")]
+pub type SdkGrpcRouter = Router<
+    tower::layer::util::Stack<
+        tower::layer::util::Stack<GrpcMetricsMiddlewareLayer, tower::layer::util::Identity>,
+        tower::layer::util::Identity,
+    >,
+>;
+#[cfg(not(feature = "with-prometheus-metrics"))]
+pub type SdkGrpcRouter = Router;
+
+#[cfg(feature = "with-prometheus-metrics")]
+pub type SdkGrpcServer = Server<
+    tower::layer::util::Stack<
+        tower::layer::util::Stack<GrpcMetricsMiddlewareLayer, tower::layer::util::Identity>,
+        tower::layer::util::Identity,
+    >,
+>;
+#[cfg(not(feature = "with-prometheus-metrics"))]
+pub type SdkGrpcServer = Server;
+
+#[cfg(feature = "with-prometheus-metrics")]
+fn new_grpc_server() -> SdkGrpcServer {
+    let layer = tower::ServiceBuilder::new()
+        .layer(GrpcMetricsMiddlewareLayer)
+        .into_inner();
+
+    Server::builder().layer(layer)
+}
+
+#[cfg(not(feature = "with-prometheus-metrics"))]
+fn new_grpc_server() -> SdkGrpcServer {
+    Server::builder()
+}
+
 const DEFAULT_GRPC_PORT: u16 = 8888;
 pub struct GrpcServerBuilder {
-    server: Option<
-        Router<
-            tower::layer::util::Stack<
-                tower::layer::util::Stack<GrpcMetricsMiddlewareLayer, tower::layer::util::Identity>,
-                tower::layer::util::Identity,
-            >,
-        >,
-    >,
+    server: Option<SdkGrpcRouter>,
 
     #[cfg(unix)]
-    server_unix_socket: Option<
-        Router<
-            tower::layer::util::Stack<
-                tower::layer::util::Stack<GrpcMetricsMiddlewareLayer, tower::layer::util::Identity>,
-                tower::layer::util::Identity,
-            >,
-        >,
-    >,
+    server_unix_socket: Option<SdkGrpcRouter>,
     #[cfg(unix)]
     mode: super::UnixSocketMode,
 
@@ -93,12 +120,7 @@ impl GrpcServerBuilder {
                     self.server_unix_socket = Some(server_unix_socket);
                 }
                 None => {
-                    let layer = tower::ServiceBuilder::new()
-                        .layer(GrpcMetricsMiddlewareLayer)
-                        .into_inner();
-
-                    let server_unix_socket =
-                        Server::builder().layer(layer).add_service(svc.clone());
+                    let server_unix_socket = new_grpc_server().add_service(svc.clone());
 
                     self.server_unix_socket = Some(server_unix_socket);
                 }
@@ -117,11 +139,7 @@ impl GrpcServerBuilder {
                     self.server = Some(server);
                 }
                 None => {
-                    let layer = tower::ServiceBuilder::new()
-                        .layer(GrpcMetricsMiddlewareLayer)
-                        .into_inner();
-
-                    let server = Server::builder().layer(layer).add_service(svc);
+                    let server = new_grpc_server().add_service(svc);
 
                     self.server = Some(server);
                 }
@@ -132,28 +150,9 @@ impl GrpcServerBuilder {
     #[deprecated(note = "Please use add_grpc_service several times")]
     pub fn add_grpc_services(
         &mut self,
-        add_function: impl Fn(
-            &mut Server<
-                tower::layer::util::Stack<
-                    tower::layer::util::Stack<
-                        GrpcMetricsMiddlewareLayer,
-                        tower::layer::util::Identity,
-                    >,
-                    tower::layer::util::Identity,
-                >,
-            >,
-        ) -> Router<
-            tower::layer::util::Stack<
-                tower::layer::util::Stack<GrpcMetricsMiddlewareLayer, tower::layer::util::Identity>,
-                tower::layer::util::Identity,
-            >,
-        >,
+        add_function: impl Fn(&mut SdkGrpcServer) -> SdkGrpcRouter,
     ) {
-        let layer = tower::ServiceBuilder::new()
-            .layer(GrpcMetricsMiddlewareLayer)
-            .into_inner();
-
-        let mut server = Server::builder().layer(layer);
+        let mut server = new_grpc_server();
 
         let router = add_function(&mut server);
 
@@ -199,15 +198,7 @@ fn get_grpc_port() -> u16 {
     }
 }
 
-fn start_grpc_server(
-    server: Router<
-        tower::layer::util::Stack<
-            tower::layer::util::Stack<GrpcMetricsMiddlewareLayer, tower::layer::util::Identity>,
-            tower::layer::util::Identity,
-        >,
-    >,
-    grpc_addr: SocketAddr,
-) {
+fn start_grpc_server(server: SdkGrpcRouter, grpc_addr: SocketAddr) {
     my_logger::LOGGER.write_info(
         "Starting GRPC Server".to_string(),
         format!("GRPC server starts at: {:?}", grpc_addr),
@@ -220,15 +211,7 @@ fn start_grpc_server(
 }
 
 #[cfg(unix)]
-fn start_grpc_server_as_unix_socket(
-    server: Router<
-        tower::layer::util::Stack<
-            tower::layer::util::Stack<GrpcMetricsMiddlewareLayer, tower::layer::util::Identity>,
-            tower::layer::util::Identity,
-        >,
-    >,
-    unix_socket_addr: String,
-) {
+fn start_grpc_server_as_unix_socket(server: SdkGrpcRouter, unix_socket_addr: String) {
     my_logger::LOGGER.write_info(
         "Starting GRPC Server".to_string(),
         format!("GRPC server starts at: {:?}", unix_socket_addr),

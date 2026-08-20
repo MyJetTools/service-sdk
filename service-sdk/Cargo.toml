@@ -107,6 +107,29 @@ postgres = [
 
 signal-r = ["my-http-server/signal-r", "service-sdk-macros/signal-r"]
 
+# ---------------------------------------------------------------------------
+# Prometheus metrics.
+#
+# With NEITHER this feature nor its deps in the tree, nothing is reported to
+# prometheus at all: the `/metrics` endpoint does not exist, the HTTP and gRPC
+# metrics middlewares are not compiled, the `EventsPerSecond` timer is not
+# registered, and no metrics / prometheus / tower crate is linked.
+#
+# `register_events_per_second()` and `EventsPerSecondCounter` stay available
+# either way - without the feature they are no-ops with identical signatures -
+# so service code compiles unchanged whether metrics are on or off.
+#
+# Deliberately NOT part of `full`: metrics are an opt-in cost, both in build
+# time and in the exposed endpoint.
+# ---------------------------------------------------------------------------
+with-prometheus-metrics = [
+    "dep:metrics",
+    "dep:metrics-prometheus",
+    "dep:prometheus",
+    "dep:tower",
+    "dep:arc-swap",
+]
+
 
 [dependencies]
 serde = { version = "*" }
@@ -171,9 +194,11 @@ my-tls = { tag = "0.1.5", git = "https://github.com/MyJetTools/my-tls.git", opti
 
 futures-core = { version = "*", optional = true }
 
-metrics = "*"
-stopwatch = "*"
-prometheus = "*"
-tower = "*"
-metrics-prometheus = "*"
-arc-swap = "*"
+# Metrics stack. Every one of these is linked ONLY by
+# `with-prometheus-metrics` - nothing else in the SDK references them, so
+# without that feature none of them is in the dependency graph.
+metrics = { version = "*", optional = true }
+prometheus = { version = "*", optional = true }
+tower = { version = "*", optional = true }
+metrics-prometheus = { version = "*", optional = true }
+arc-swap = { version = "*", optional = true }

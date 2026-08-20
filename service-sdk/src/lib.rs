@@ -41,4 +41,5 @@ pub extern crate my_postgres;
 #[cfg(feature = "my-service-bus")]
 pub extern crate my_service_bus;
 
+#[cfg(feature = "with-prometheus-metrics")]
 pub extern crate metrics;

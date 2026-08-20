@@ -15,7 +15,8 @@ async fn main() {
 
     let mut service_context = ServiceContext::new(settings_reader).await;
 
-    // /api/isalive and /metrics are registered automatically.
+    // /api/isalive is registered automatically (and /metrics too, with the
+    // `with-prometheus-metrics` feature).
     // Use configure_http_server only to add additional routes.
     // service_context.configure_http_server(|http| {
     //     http.register_get_action(Arc::new(GetAction::new()));
@@ -105,7 +106,9 @@ impl ServiceInfo for SettingsReader {
 
 # Features overview
 
-The following are **always on** (no feature flag required): `/api/isalive` and `/metrics` HTTP endpoints, Seq logger, my-telemetry writer, settings reader, app-states lifecycle. They come built into `service-sdk` and need only their respective settings traits implemented (`SeqSettings`, `MyTelemetrySettings`, `ServiceInfo`).
+The following are **always on** (no feature flag required): the `/api/isalive` HTTP endpoint, Seq logger, my-telemetry writer, settings reader, app-states lifecycle. They come built into `service-sdk` and need only their respective settings traits implemented (`SeqSettings`, `MyTelemetrySettings`, `ServiceInfo`).
+
+Prometheus metrics and the `/metrics` endpoint are **not** in that list — they need `with-prometheus-metrics`.
 
 Opt-in features add capabilities on top:
 
@@ -122,10 +125,11 @@ Opt-in features add capabilities on top:
 | `with-rust-tls`               | The same TLS, with the **pure-Rust** provider (`rustls-graviola`) - no C toolchain anywhere. Builds only on x86_64/aarch64 and is far less deployed than ring, so prefer `with-ring-tls` unless dropping the C toolchain is the point. | — |
 | `with-postgres-tls`           | TLS for postgres (`my-postgres/with-tls`, openssl-based - a separate stack from `with-ring-tls`). No-op unless `postgres` is on too. | — |
 | `with-ssh`                    | SSH tunnels for gRPC, fl-url, my-no-sql and postgres. Without it no `my-ssh`/`ssh2`/`libssh2-sys` crate is compiled in at all. | — |
+| `with-prometheus-metrics`     | Prometheus metrics: the `/metrics` endpoint, HTTP/gRPC request metrics, the `EventsPerSecond` timer and the `service_sdk::metrics` re-export. Without it nothing is reported to prometheus and no `metrics`/`metrics-prometheus`/`prometheus` crate is compiled in at all. | — |
 | `http-static-files`           | Static-file middleware in `my-http-server`                                               | —                                                                         |
 | `websockets`                  | WebSocket support in `my-http-server`                                                    | —                                                                         |
 | `signal-r`                    | SignalR support in `my-http-server`                                                      | —                                                                         |
-| `full`                        | All of: `my-service-bus`, `my-nosql-sdk`, `my-nosql-data-reader-sdk`, `my-nosql-data-writer-sdk`, `grpc`, `postgres`, `macros`. **Never** includes `with-ring-tls`, `with-rust-tls`, `with-postgres-tls` or `with-ssh` - TLS and SSH never ride along with a convenience feature, they are always requested explicitly. | union of the above |
+| `full`                        | All of: `my-service-bus`, `my-nosql-sdk`, `my-nosql-data-reader-sdk`, `my-nosql-data-writer-sdk`, `grpc`, `postgres`, `macros`. **Never** includes `with-ring-tls`, `with-rust-tls`, `with-postgres-tls`, `with-ssh` or `with-prometheus-metrics` - TLS, SSH and metrics never ride along with a convenience feature, they are always requested explicitly. | union of the above |
 
 ## TLS and SSH are opt-in
 
@@ -173,7 +177,16 @@ reader - so if any of those endpoints is `https://`, `with-ring-tls` is
 mandatory. Turn it on whenever the service talks to anything over https.
 
 # Metrics
-We support metrics for gRPC and HTTP. They are enabled by default. You can get them at `/metrics`.
+
+Metrics require the `with-prometheus-metrics` feature. With it, gRPC and HTTP request metrics are collected automatically and served at `/metrics`:
+
+```toml
+service-sdk = { tag = "...", git = "...", features = ["full", "with-prometheus-metrics"] }
+```
+
+Without the feature nothing is reported to prometheus: there is no `/metrics` endpoint, no HTTP or gRPC metrics middleware, no `EventsPerSecond` timer, no `service_sdk::metrics` re-export, and no `metrics` / `metrics-prometheus` / `prometheus` crate in the dependency graph (which also drops `protobuf`, pulled in transitively by `prometheus`).
+
+`register_events_per_second()` and `EventsPerSecondCounter` are the one exception: they exist in **both** modes with identical signatures, so service code that registers and increments counters compiles unchanged either way. With the feature off they are no-ops.
 
 | Type | Feature                                | Description                          | Labels                    |
 | ---- | -------------------------------------- | ------------------------------------ | ------------------------- |
@@ -188,7 +201,7 @@ We support metrics for gRPC and HTTP. They are enabled by default. You can get t
 | GRPC | grpc_request_count                     | Count of GRPC requests               | method, path              |
                                                                                                                     
 ### Custom metrics
-Also if you need - you can create you own metrics:
+Also if you need - you can create you own metrics. `service_sdk::metrics` is re-exported only under `with-prometheus-metrics`, so these calls need the feature:
 
 ```rust, no_run
 let common_labels = &[
@@ -211,6 +224,8 @@ service_sdk::metrics::histogram!("my_metric_histogram", common_labels)
 ### Events-per-second metrics
 
 If you want a gauge that exposes "events per second" (events accumulated over the last second), register an `EventsPerSecondCounter` once on the `ServiceContext` and just `.increment()` on the returned handle from anywhere in your code. The SDK runs an internal 1-second background timer that snapshots the accumulated value, resets the counter to zero, and emits a Prometheus gauge under the name you registered. The metric name is used as-is — no suffix is added.
+
+Unlike the rest of this section, this API does not need `#[cfg]` on the caller's side: it compiles with or without `with-prometheus-metrics`. Without the feature the counter is a no-op — nothing accumulates, no timer runs and no gauge is published.
 
 ```rust, no_run
 let counter = service_context.register_events_per_second("my_events_per_second");

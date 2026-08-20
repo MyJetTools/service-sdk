@@ -1,3 +1,4 @@
+#[cfg(feature = "with-prometheus-metrics")]
 use arc_swap::ArcSwap;
 use my_http_server::MyHttpServer;
 use my_logger::my_seq_logger::{SeqLogger, SeqSettings};
@@ -22,7 +23,10 @@ use my_service_bus::{
 
 use std::{sync::Arc, time::Duration};
 
-use crate::{EventsPerSecondCounter, EventsPerSecondTimerTick, HttpServerBuilder, ServiceInfo};
+use crate::{EventsPerSecondCounter, HttpServerBuilder, ServiceInfo};
+
+#[cfg(feature = "with-prometheus-metrics")]
+use crate::EventsPerSecondTimerTick;
 
 #[cfg(feature = "grpc")]
 use crate::GrpcServerBuilder;
@@ -37,6 +41,7 @@ pub struct ServiceContext {
     pub app_version: &'static str,
     pub background_timers: Vec<MyTimer>,
     pub background_exact_timers: Vec<MyExactTimer>,
+    #[cfg(feature = "with-prometheus-metrics")]
     events_per_second_counters: Arc<ArcSwap<Vec<Arc<EventsPerSecondCounter>>>>,
     #[cfg(feature = "my-nosql-data-reader-sdk")]
     pub my_no_sql_connection: Arc<MyNoSqlTcpConnection>,
@@ -48,6 +53,9 @@ pub struct ServiceContext {
 
 impl ServiceContext {
     pub async fn new(settings_reader: service_sdk_macros::generate_settings_signature!()) -> Self {
+        // Installs the prometheus recorder for the `metrics` facade. Without
+        // the feature there is no recorder and no prometheus registry at all.
+        #[cfg(feature = "with-prometheus-metrics")]
         metrics_prometheus::install();
 
         // Either provider feature brings the same `install_default_crypto_providers`
@@ -85,17 +93,28 @@ impl ServiceContext {
 
         println!("Initialized service context");
 
+        // The per-second timer is what turns the counters into prometheus
+        // gauges. With no prometheus there is nothing for it to publish, so it
+        // is not created and no background timer runs.
+        #[cfg(feature = "with-prometheus-metrics")]
         let events_per_second_counters: Arc<ArcSwap<Vec<Arc<EventsPerSecondCounter>>>> =
             Arc::new(ArcSwap::from_pointee(Vec::new()));
 
-        let mut events_per_second_timer = MyTimer::new(Duration::from_secs(1));
-        events_per_second_timer.set_first_tick_before_delay();
-        events_per_second_timer.register_timer(
-            "EventsPerSecond",
-            Arc::new(EventsPerSecondTimerTick {
-                counters: events_per_second_counters.clone(),
-            }),
-        );
+        #[cfg(feature = "with-prometheus-metrics")]
+        let background_timers = {
+            let mut events_per_second_timer = MyTimer::new(Duration::from_secs(1));
+            events_per_second_timer.set_first_tick_before_delay();
+            events_per_second_timer.register_timer(
+                "EventsPerSecond",
+                Arc::new(EventsPerSecondTimerTick {
+                    counters: events_per_second_counters.clone(),
+                }),
+            );
+            vec![events_per_second_timer]
+        };
+
+        #[cfg(not(feature = "with-prometheus-metrics"))]
+        let background_timers = vec![];
 
         Self {
             http_server_builder: HttpServerBuilder::new(app_name, app_version),
@@ -110,8 +129,9 @@ impl ServiceContext {
             app_version,
             #[cfg(feature = "grpc")]
             grpc_server_builder: None,
-            background_timers: vec![events_per_second_timer],
+            background_timers,
             background_exact_timers: vec![],
+            #[cfg(feature = "with-prometheus-metrics")]
             events_per_second_counters,
         }
     }
@@ -121,11 +141,17 @@ impl ServiceContext {
         metric_name: impl Into<String>,
     ) -> Arc<EventsPerSecondCounter> {
         let counter = Arc::new(EventsPerSecondCounter::new(metric_name));
+
+        // Without `with-prometheus-metrics` the counter is a no-op and there is
+        // no registry to attach it to - the signature is kept so service code
+        // does not need its own #[cfg].
+        #[cfg(feature = "with-prometheus-metrics")]
         self.events_per_second_counters.rcu(|prev| {
             let mut new: Vec<Arc<EventsPerSecondCounter>> = (**prev).clone();
             new.push(counter.clone());
             Arc::new(new)
         });
+
         counter
     }
 

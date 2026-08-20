@@ -10,6 +10,7 @@ use my_http_server::controllers::{
 };
 use my_http_server::{HttpServerMiddleware, MyHttpServer};
 
+#[cfg(feature = "with-prometheus-metrics")]
 use crate::{MetricsMiddleware, MetricsTechMiddleware};
 
 #[derive(Default)]
@@ -134,8 +135,14 @@ impl HttpServerConfig {
     ) {
         let is_alive = IsAliveMiddleware::new(app_name, app_version);
         my_http_server.add_middleware(Arc::new(is_alive));
-        my_http_server.add_middleware(Arc::new(MetricsMiddleware));
-        my_http_server.add_tech_middleware(Arc::new(MetricsTechMiddleware));
+
+        // Without `with-prometheus-metrics` neither middleware exists, so the
+        // server serves no `/metrics` endpoint and records no request metrics.
+        #[cfg(feature = "with-prometheus-metrics")]
+        {
+            my_http_server.add_middleware(Arc::new(MetricsMiddleware));
+            my_http_server.add_tech_middleware(Arc::new(MetricsTechMiddleware));
+        }
 
         for middleware in self.custom_middlewares.drain(..) {
             my_http_server.add_middleware(middleware);

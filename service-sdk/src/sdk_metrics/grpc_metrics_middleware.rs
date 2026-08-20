@@ -3,6 +3,7 @@ use std::task::{Context, Poll};
 
 use my_grpc_extensions::hyper;
 use my_grpc_extensions::tonic::body::Body;
+use rust_extensions::date_time::DateTimeAsMicroseconds;
 use tower::{Layer, Service};
 
 #[derive(Debug, Clone, Default)]
@@ -43,10 +44,15 @@ where
         let path = req.uri().path().to_string();
 
         Box::pin(async move {
-            let mut sw = stopwatch::Stopwatch::start_new();
+            // Same timing idiom as `http_metrics_tech_middleware`:
+            // `as_positive_or_zero` keeps a backwards wall-clock jump from
+            // producing a negative duration in this hot path.
+            let started = DateTimeAsMicroseconds::now();
             let response = inner.call(req).await?;
-            sw.stop();
-            let duration = sw.elapsed();
+            let duration = DateTimeAsMicroseconds::now()
+                .duration_since(started)
+                .as_positive_or_zero();
+
             let common_labels = &[
                 ("method", method),
                 ("path", path),
