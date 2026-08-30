@@ -71,9 +71,7 @@ impl ServiceContext {
         let app_name = settings_reader.get_service_name();
         let app_version = settings_reader.get_service_version();
 
-        my_logger::LOGGER
-            .populate_app_and_version(app_name, app_version)
-            .await;
+        my_logger::LOGGER.populate_app_and_version(app_name, app_version);
 
         SeqLogger::enable_from_connection_string(settings_reader.clone()).await;
 
