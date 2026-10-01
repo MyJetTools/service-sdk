@@ -338,9 +338,20 @@ let service_context = ServiceContext::new(settings_reader).await;
 let ns_reader: Arc<MyNoSqlDataReaderTcp<MyModel>> = service_context.get_ns_reader();
 ```
 
+`start_application` starts the MyNoSql connection first and waits until every reader handed out by `get_ns_reader` has received its first snapshot. Only then is the app marked as initialized and everything else started — background timers, the service bus client, the HTTP and gRPC servers. So no request, message or timer tick ever runs against a table that is not loaded yet, and a request handler, a subscriber or a timer tick has no need to call `wait_until_first_data_arrives()` itself.
+
+Things to know about that wait:
+
+- While it lasts the HTTP port is closed, `/api/isalive` included. A service whose MyNoSql server is unreachable never becomes alive.
+- It has no timeout. Every 5 seconds the reason the application has not started yet is printed to the console, with the table still being waited for: `MyNoSql readers are not initialized: table '<table>' has no data yet - start of application is delayed`.
+- An empty or not yet created table does not block the start — the server answers the subscription with an empty snapshot.
+- Only readers obtained through `get_ns_reader` are waited for. A reader taken directly from `service_context.my_no_sql_connection` is not.
+- Code you start yourself is not covered. A task spawned before `start_application` runs alongside the wait, and a run-once tool that starts `my_no_sql_connection` on its own never goes through it — both still have to call `wait_until_first_data_arrives()` before the first read.
+- `start_application` returns only on shutdown, so "after the wait" means inside a handler, a subscriber or a timer tick — not on the line after `start_application().await`.
+
 # Background timers
 
-Register background timers on the `ServiceContext` before `start_application`; the SDK starts them for you (they wait for the app to become initialized and stop on shutdown). Tick logic implements `rust_extensions::MyTimerTick`, whose `tick` returns a `RepeatTimerIteration` telling the timer loop what to do next:
+Register background timers on the `ServiceContext` before `start_application`; the SDK starts them for you, right after the app is marked as initialized. A timer does not watch the application states itself: once started it ticks until the process exits, so a tick can still run while the app is shutting down. With the `my-nosql-data-reader-sdk` feature the app becomes initialized only after the MyNoSql readers got their first data — see [NoSql](#nosql) — so a tick never sees an unloaded table. Tick logic implements `rust_extensions::MyTimerTick`, whose `tick` returns a `RepeatTimerIteration` telling the timer loop what to do next:
 
 ```rust, no_run
 use service_sdk::rust_extensions::{MyTimerTick, RepeatTimerIteration};
@@ -376,6 +387,61 @@ use service_sdk::rust_extensions::ExactTimerInterval;
 service_context.register_exact_timer(ExactTimerInterval::Every5Seconds, |timer| {
     timer.register_timer("MyTick", Arc::new(MyTick));
 });
+```
+
+# Queues, events loops and background executors
+
+The building blocks of `rust_extensions` which implement `Startable` are created on the `ServiceContext`. It wires them to the SDK logger (and to the application states, where one is needed), gives back an `Arc` to keep in your `AppContext`, and starts them in `start_application` — right after the app is marked as initialized, before the service bus client and the HTTP and gRPC servers. With the `my-nosql-data-reader-sdk` feature that is after the MyNoSql readers got their first data — see [NoSql](#nosql) — so a handler never sees an unloaded table.
+
+| Method                                                             | Returns                                              | Handler is registered with |
+|--------------------------------------------------------------------|------------------------------------------------------|----------------------------|
+| `create_events_loop::<TModel>(name)`                               | `Arc<EventsLoop<TModel>>`                            | `register_event_loop`      |
+| `create_background_executor(name)`                                 | `Arc<BackgroundExecutor>`                            | `register`                 |
+| `create_background_executor_with_multi_threads::<TThreadId>(name)` | `Arc<BackgroundExecutorWithMultiThreads<TThreadId>>` | `register`                 |
+| `create_queue_to_save::<T>(name)`                                  | `Arc<QueueToSave<T>>`                                | `register_events_handler`  |
+| `create_queue_to_save_as_bulk::<T>(name)`                          | `Arc<QueueToSaveAsBulk<T>>`                          | `register_events_handler`  |
+| `create_queue_to_save_with_id::<ID, T>(name)`                      | `Arc<QueueToSaveWithId<ID, T>>`                      | `register_events_handler`  |
+| `create_queue_to_save_or_delete_with_id::<ID, T>(name)`            | `Arc<QueueToSaveOrDeleteWithId<ID, T>>`              | `register_events_handler`  |
+
+All of them take `&self` — the same as `get_ns_reader` — so they can be called from `AppContext::new(&service_context)`:
+
+```rust, no_run
+use service_sdk::rust_extensions::{QueueToSaveAsBulk, QueueToSaveAsBulkEventsHandler};
+
+pub struct SaveToDb;
+
+#[async_trait::async_trait]
+impl QueueToSaveAsBulkEventsHandler<MyModel> for SaveToDb {
+    async fn execute(&self, items: &[MyModel], attempt_no: usize) {
+        // ... save the items ...
+    }
+}
+
+let queue: Arc<QueueToSaveAsBulk<MyModel>> = service_context.create_queue_to_save_as_bulk("SaveToDb");
+queue.register_events_handler(Arc::new(SaveToDb));
+
+// no `queue.start()` - `start_application` does it
+service_context.start_application().await;
+```
+
+Things to know:
+
+- Register the handler before `start_application`. A component left without one panics when it is started, naming itself.
+- Do not call `start()` yourself — the second start panics.
+- What is published before the start is not lost: an events loop and the queues keep it until they are started. A background executor is the exception — `trigger` panics until the executor is started, so trigger it only from code which runs after the start: a handler, a subscriber, a timer tick.
+- A component with non-default settings (`set_iteration_timeout`, `set_retry_timeout`), or a `Startable` of your own, is built by hand and handed over with `register_startable`, which gives it back as an `Arc`:
+
+```rust, no_run
+use service_sdk::rust_extensions::events_loop::EventsLoop;
+
+let events_loop: Arc<EventsLoop<MyModel>> = service_context.register_startable(
+    EventsLoop::new(
+        "MyLoop",
+        service_context.app_states.clone(),
+        service_sdk::my_logger::LOGGER.clone(),
+    )
+    .set_iteration_timeout(Duration::from_secs(5)),
+);
 ```
 
 # HTTP server protocol

@@ -3,7 +3,13 @@ use arc_swap::ArcSwap;
 use my_http_server::MyHttpServer;
 use my_logger::my_seq_logger::{SeqLogger, SeqSettings};
 use my_telemetry::my_telemetry_writer::{MyTelemetrySettings, MyTelemetryWriter};
-use rust_extensions::{AppStates, ExactTimerInterval, MyExactTimer, MyTimer};
+use rust_extensions::{
+    background_executor::BackgroundExecutor,
+    background_executor_with_multi_threads::BackgroundExecutorWithMultiThreads,
+    events_loop::EventsLoop, AppStates, ExactTimerInterval, MyExactTimer, MyTimer,
+    PersistObjectId, QueueToSave, QueueToSaveAsBulk, QueueToSaveOrDeleteWithId, QueueToSaveWithId,
+    Startable, StrOrString,
+};
 
 #[cfg(feature = "my-nosql-data-writer-sdk")]
 use my_no_sql_sdk::data_writer::MyNoSqlWriterSettings;
@@ -21,7 +27,7 @@ use my_service_bus::{
     client::{MyServiceBusClient, MyServiceBusSettings},
 };
 
-use std::{sync::Arc, time::Duration};
+use std::{fmt::Debug, hash::Hash, sync::Arc, time::Duration};
 
 use crate::{EventsPerSecondCounter, HttpServerBuilder, ServiceInfo};
 
@@ -31,6 +37,11 @@ use crate::EventsPerSecondTimerTick;
 #[cfg(feature = "grpc")]
 use crate::GrpcServerBuilder;
 
+// How often `start_application` reports to the console that it is still
+// waiting for MyNoSql - the reason the application has not started yet.
+#[cfg(feature = "my-nosql-data-reader-sdk")]
+const NS_FIRST_DATA_NOTICE_INTERVAL: Duration = Duration::from_secs(5);
+
 pub struct ServiceContext {
     pub http_server_builder: HttpServerBuilder,
     pub http_servers: Vec<MyHttpServer>,
@@ -39,12 +50,19 @@ pub struct ServiceContext {
     pub app_states: Arc<AppStates>,
     pub app_name: &'static str,
     pub app_version: &'static str,
-    pub background_timers: Vec<MyTimer>,
-    pub background_exact_timers: Vec<MyExactTimer>,
+    // Everything `start_application` starts once the app is initialized: the
+    // timers and whatever was created by `create_*` or handed over to
+    // `register_startable`. Behind a mutex, so those take `&self` - the same
+    // way `get_ns_reader` does.
+    startables: parking_lot::Mutex<Vec<Arc<dyn Startable + Send + Sync + 'static>>>,
     #[cfg(feature = "with-prometheus-metrics")]
     events_per_second_counters: Arc<ArcSwap<Vec<Arc<EventsPerSecondCounter>>>>,
     #[cfg(feature = "my-nosql-data-reader-sdk")]
     pub my_no_sql_connection: Arc<MyNoSqlTcpConnection>,
+    // Every reader handed out by `get_ns_reader`. `start_application` waits for
+    // the first data of each of them before it starts anything else.
+    #[cfg(feature = "my-nosql-data-reader-sdk")]
+    ns_readers: parking_lot::Mutex<Vec<Arc<dyn NsReaderFirstData + Send + Sync + 'static>>>,
     #[cfg(feature = "my-service-bus")]
     pub sb_client: Arc<MyServiceBusClient>,
     #[cfg(feature = "grpc")]
@@ -99,8 +117,9 @@ impl ServiceContext {
             Arc::new(ArcSwap::from_pointee(Vec::new()));
 
         #[cfg(feature = "with-prometheus-metrics")]
-        let background_timers = {
-            let mut events_per_second_timer = MyTimer::new(Duration::from_secs(1));
+        let startables: Vec<Arc<dyn Startable + Send + Sync + 'static>> = {
+            let mut events_per_second_timer =
+                MyTimer::new(Duration::from_secs(1), my_logger::LOGGER.clone());
             events_per_second_timer.set_first_tick_before_delay();
             events_per_second_timer.register_timer(
                 "EventsPerSecond",
@@ -108,11 +127,11 @@ impl ServiceContext {
                     counters: events_per_second_counters.clone(),
                 }),
             );
-            vec![events_per_second_timer]
+            vec![Arc::new(events_per_second_timer)]
         };
 
         #[cfg(not(feature = "with-prometheus-metrics"))]
-        let background_timers = vec![];
+        let startables = vec![];
 
         Self {
             http_server_builder: HttpServerBuilder::new(app_name, app_version),
@@ -121,14 +140,15 @@ impl ServiceContext {
             app_states,
             #[cfg(feature = "my-nosql-data-reader-sdk")]
             my_no_sql_connection,
+            #[cfg(feature = "my-nosql-data-reader-sdk")]
+            ns_readers: parking_lot::Mutex::new(Vec::new()),
             #[cfg(feature = "my-service-bus")]
             sb_client,
             app_name,
             app_version,
             #[cfg(feature = "grpc")]
             grpc_server_builder: None,
-            background_timers,
-            background_exact_timers: vec![],
+            startables: parking_lot::Mutex::new(startables),
             #[cfg(feature = "with-prometheus-metrics")]
             events_per_second_counters,
         }
@@ -154,10 +174,10 @@ impl ServiceContext {
     }
 
     pub fn register_timer(&mut self, duration: Duration, builder: impl Fn(&mut MyTimer)) {
-        let mut timer = MyTimer::new(duration);
+        let mut timer = MyTimer::new(duration, my_logger::LOGGER.clone());
         builder(&mut timer);
 
-        self.background_timers.push(timer);
+        self.startables.get_mut().push(Arc::new(timer));
     }
 
     pub fn register_exact_timer(
@@ -165,10 +185,97 @@ impl ServiceContext {
         interval: ExactTimerInterval,
         builder: impl Fn(&mut MyExactTimer),
     ) {
-        let mut timer = MyExactTimer::new(interval);
+        let mut timer = MyExactTimer::new(interval, my_logger::LOGGER.clone());
         builder(&mut timer);
 
-        self.background_exact_timers.push(timer);
+        self.startables.get_mut().push(Arc::new(timer));
+    }
+
+    // Hands over to `start_application` anything which is to be started once
+    // the app is initialized - and gives it back as an `Arc` to keep. That is
+    // the way in for what `create_*` below does not cover: a component built
+    // with non-default settings, or a `Startable` of your own.
+    pub fn register_startable<TStartable: Startable + Send + Sync + 'static>(
+        &self,
+        startable: TStartable,
+    ) -> Arc<TStartable> {
+        let startable = Arc::new(startable);
+        self.startables.lock().push(startable.clone());
+        startable
+    }
+
+    // The building blocks of rust-extensions, wired to the logger and the
+    // application states of the SDK. Each one is started by
+    // `start_application` - so its handler has to be registered before that,
+    // otherwise `start` panics.
+    pub fn create_events_loop<TModel: Send + 'static>(
+        &self,
+        name: impl Into<StrOrString<'static>>,
+    ) -> Arc<EventsLoop<TModel>> {
+        self.register_startable(EventsLoop::new(
+            name,
+            self.app_states.clone(),
+            my_logger::LOGGER.clone(),
+        ))
+    }
+
+    pub fn create_background_executor(
+        &self,
+        name: impl Into<StrOrString<'static>>,
+    ) -> Arc<BackgroundExecutor> {
+        self.register_startable(BackgroundExecutor::new(name, my_logger::LOGGER.clone()))
+    }
+
+    pub fn create_background_executor_with_multi_threads<TThreadId>(
+        &self,
+        name: impl Into<StrOrString<'static>>,
+    ) -> Arc<BackgroundExecutorWithMultiThreads<TThreadId>>
+    where
+        TThreadId: Hash + Eq + Clone + Send + Sync + 'static,
+    {
+        self.register_startable(BackgroundExecutorWithMultiThreads::new(
+            name,
+            my_logger::LOGGER.clone(),
+        ))
+    }
+
+    pub fn create_queue_to_save<T: Send + Sync + 'static>(
+        &self,
+        name: impl Into<StrOrString<'static>>,
+    ) -> Arc<QueueToSave<T>> {
+        self.register_startable(QueueToSave::new(name, my_logger::LOGGER.clone()))
+    }
+
+    pub fn create_queue_to_save_as_bulk<T: Send + Sync + 'static>(
+        &self,
+        name: impl Into<StrOrString<'static>>,
+    ) -> Arc<QueueToSaveAsBulk<T>> {
+        self.register_startable(QueueToSaveAsBulk::new(name, my_logger::LOGGER.clone()))
+    }
+
+    pub fn create_queue_to_save_with_id<ID, T>(
+        &self,
+        name: impl Into<StrOrString<'static>>,
+    ) -> Arc<QueueToSaveWithId<ID, T>>
+    where
+        ID: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+        T: PersistObjectId<ID> + Send + Sync + 'static,
+    {
+        self.register_startable(QueueToSaveWithId::new(name, my_logger::LOGGER.clone()))
+    }
+
+    pub fn create_queue_to_save_or_delete_with_id<ID, T>(
+        &self,
+        name: impl Into<StrOrString<'static>>,
+    ) -> Arc<QueueToSaveOrDeleteWithId<ID, T>>
+    where
+        ID: Hash + Eq + Clone + Debug + Send + Sync + 'static,
+        T: PersistObjectId<ID> + Send + Sync + 'static,
+    {
+        self.register_startable(QueueToSaveOrDeleteWithId::new(
+            name,
+            my_logger::LOGGER.clone(),
+        ))
     }
 
     pub fn configure_http_server(&mut self, config: impl Fn(&mut HttpServerBuilder)) -> &mut Self {
@@ -177,17 +284,21 @@ impl ServiceContext {
     }
 
     pub async fn start_application(&mut self) {
-        self.app_states.set_initialized();
-        self.telemetry_writer
-            .start(self.app_states.clone(), my_logger::LOGGER.clone());
-        for timer in self.background_timers.iter() {
-            timer.start(self.app_states.clone(), my_logger::LOGGER.clone());
-        }
-        for timer in self.background_exact_timers.iter() {
-            timer.start(self.app_states.clone(), my_logger::LOGGER.clone());
-        }
+        // MyNoSql goes first and everything else waits for it. Until every
+        // reader handed out by `get_ns_reader` has its first snapshot the app
+        // is not marked as initialized and nothing else is started - neither
+        // the timers, nor the service bus, nor the HTTP and gRPC servers.
         #[cfg(feature = "my-nosql-data-reader-sdk")]
-        self.my_no_sql_connection.start().await;
+        {
+            self.my_no_sql_connection.start().await;
+            self.wait_until_ns_readers_get_first_data().await;
+        }
+
+        self.app_states.set_initialized();
+        self.telemetry_writer.start(my_logger::LOGGER.clone());
+        for startable in self.startables.get_mut().iter() {
+            startable.start();
+        }
         #[cfg(feature = "my-service-bus")]
         self.sb_client.start().await;
 
@@ -219,7 +330,35 @@ impl ServiceContext {
     >(
         &self,
     ) -> Arc<my_no_sql_sdk::reader::MyNoSqlDataReaderTcp<TMyNoSqlEntity>> {
-        self.my_no_sql_connection.get_reader()
+        let reader = self.my_no_sql_connection.get_reader();
+
+        // Remembered, so `start_application` can wait for its first data.
+        self.ns_readers.lock().push(reader.clone());
+
+        reader
+    }
+
+    #[cfg(feature = "my-nosql-data-reader-sdk")]
+    async fn wait_until_ns_readers_get_first_data(&self) {
+        // Cloned out, so the guard is not held across the awaits below.
+        let readers = self.ns_readers.lock().clone();
+
+        // One at a time is enough: the connection fills every table on its
+        // own, whoever awaits it, so the total is the slowest table either way.
+        for reader in readers {
+            while tokio::time::timeout(
+                NS_FIRST_DATA_NOTICE_INTERVAL,
+                reader.wait_until_first_data_arrives(),
+            )
+            .await
+            .is_err()
+            {
+                println!(
+                    "MyNoSql readers are not initialized: table '{}' has no data yet - start of application is delayed",
+                    reader.get_table_name()
+                );
+            }
+        }
     }
 
     //sb
@@ -311,5 +450,34 @@ impl ServiceContext {
                 self.grpc_server_builder = Some(grpc_server_builder);
             }
         }
+    }
+}
+
+// A `MyNoSqlDataReaderTcp` with its entity type erased - that is what lets
+// readers of different tables sit in one list for `start_application` to wait
+// on.
+#[cfg(feature = "my-nosql-data-reader-sdk")]
+#[async_trait::async_trait]
+trait NsReaderFirstData {
+    fn get_table_name(&self) -> &'static str;
+    async fn wait_until_first_data_arrives(&self);
+}
+
+#[cfg(feature = "my-nosql-data-reader-sdk")]
+#[async_trait::async_trait]
+impl<TMyNoSqlEntity> NsReaderFirstData for MyNoSqlDataReaderTcp<TMyNoSqlEntity>
+where
+    TMyNoSqlEntity: my_no_sql_sdk::abstractions::MyNoSqlEntity
+        + my_no_sql_sdk::abstractions::MyNoSqlEntitySerializer
+        + Sync
+        + Send
+        + 'static,
+{
+    fn get_table_name(&self) -> &'static str {
+        TMyNoSqlEntity::TABLE_NAME
+    }
+
+    async fn wait_until_first_data_arrives(&self) {
+        MyNoSqlDataReader::wait_until_first_data_arrives(self).await
     }
 }
