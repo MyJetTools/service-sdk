@@ -287,7 +287,9 @@ impl ServiceContext {
         // MyNoSql goes first and everything else waits for it. Until every
         // reader handed out by `get_ns_reader` has its first snapshot the app
         // is not marked as initialized and nothing else is started - neither
-        // the timers, nor the service bus, nor the HTTP and gRPC servers.
+        // the timers, nor whatever was created by `create_*` or handed over to
+        // `register_startable`, nor the service bus, nor the HTTP and gRPC
+        // servers.
         #[cfg(feature = "my-nosql-data-reader-sdk")]
         {
             self.my_no_sql_connection.start().await;

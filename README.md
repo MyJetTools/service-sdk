@@ -19,7 +19,7 @@ async fn main() {
     // `with-prometheus-metrics` feature).
     // Use configure_http_server only to add additional routes.
     // service_context.configure_http_server(|http| {
-    //     http.register_get_action(Arc::new(GetAction::new()));
+    //     http.register_get_action(GetAction::new());
     // });
 
     service_context.start_application().await;
@@ -117,14 +117,14 @@ Opt-in features add capabilities on top:
 | `macros`                      | `SdkSettingsTraits` / `AutoGenerateSettingsTraits` derives + `use_settings!()` / `use_grpc_*!()` / `use_my_no_sql_entity!()` / `use_my_postgres!()` etc. (`SettingsModel` derive comes from `my-settings-reader`.) | —                                                                         |
 | `my-service-bus`              | `register_sb_subscribe`, `get_sb_publisher`, `get_sb_publisher_with_internal_queue`      | `MyServiceBusSettings` (auto-derived as `my_sb_tcp_host_port`)             |
 | `my-nosql-sdk`                | NoSql entity macros only (no I/O)                                                        | —                                                                         |
-| `my-nosql-data-reader-sdk`    | `get_ns_reader` returning `MyNoSqlDataReaderTcp<T>`                                      | `MyNoSqlTcpConnectionSettings` (auto-derived as `my_no_sql_tcp_reader`)    |
+| `my-nosql-data-reader-sdk`    | `get_ns_reader` returning `Arc<MyNoSqlDataReaderTcp<T>>`                                 | `MyNoSqlTcpConnectionSettings` (auto-derived as `my_no_sql_tcp_reader`)    |
 | `my-nosql-data-writer-sdk`    | Enables `my-no-sql-sdk/data-writer` (use `MyNoSqlDataWriter<T>` directly from `my-no-sql-sdk`) | `MyNoSqlWriterSettings` (auto-derived as `my_no_sql_writer`)               |
 | `grpc`                        | `configure_grpc_server` + gRPC client/server macros                                      | —                                                                         |
 | `postgres`                    | `my-postgres` integration                                                                | `PostgresSettings` (auto-derived as `postgres_conn_string`)                |
 | `with-ring-tls`               | rustls TLS with the **ring** crypto provider. Links `rustls`/`my-tls` and installs the provider. Required for `https://` through fl-url, TLS gRPC and other TLS-bearing transports. Mature and widely deployed, at the cost of a bundled C/assembly build. | — |
 | `with-rust-tls`               | The same TLS, with the **pure-Rust** provider (`rustls-graviola`) - no C toolchain anywhere. Builds only on x86_64/aarch64 and is far less deployed than ring, so prefer `with-ring-tls` unless dropping the C toolchain is the point. | — |
 | `with-postgres-tls`           | TLS for postgres (`my-postgres/with-tls`, openssl-based - a separate stack from `with-ring-tls`). No-op unless `postgres` is on too. | — |
-| `with-ssh`                    | SSH tunnels for gRPC, fl-url, my-no-sql and postgres. Without it no `my-ssh`/`ssh2`/`libssh2-sys` crate is compiled in at all. | — |
+| `with-ssh`                    | SSH tunnels for gRPC, fl-url, my-no-sql and postgres. Without it no `my-ssh`/`russh`/`aws-lc-sys` crate is compiled in at all. | — |
 | `with-prometheus-metrics`     | Prometheus metrics: the `/metrics` endpoint, HTTP/gRPC request metrics, the `EventsPerSecond` timer and the `service_sdk::metrics` re-export. Without it nothing is reported to prometheus and no `metrics`/`metrics-prometheus`/`prometheus` crate is compiled in at all. | — |
 | `http-static-files`           | Static-file middleware in `my-http-server`                                               | —                                                                         |
 | `websockets`                  | WebSocket support in `my-http-server`                                                    | —                                                                         |
@@ -140,8 +140,8 @@ and codegen features only; TLS and SSH are always named explicitly, e.g.
 
 `cargo tree` on any feature set that contains none of `with-ring-tls`,
 `with-rust-tls`, `with-postgres-tls`, `with-ssh` has no `rustls*`, `ring`,
-`graviola`, `rcgen`, `webpki`, `openssl*`, `my-tls`, `my-ssh`, `ssh2` or
-`libssh2-sys` crate in it.
+`graviola`, `rcgen`, `webpki`, `openssl*`, `my-tls`, `my-ssh`, `russh*` or
+`aws-lc*` crate in it.
 
 The switches are independent because they are genuinely different stacks:
 
@@ -150,7 +150,7 @@ The switches are independent because they are genuinely different stacks:
 | `with-ring-tls`     | rustls + ring (`my-tls`)         | `flurl`, `my-grpc-extensions`, plus `my_tls::install_default_crypto_providers()` in `ServiceContext::new` |
 | `with-rust-tls`     | rustls + graviola (`my-tls`)     | the same three places - only the provider differs                    |
 | `with-postgres-tls` | openssl (`postgres-openssl`)     | `my-postgres`                                                       |
-| `with-ssh`          | libssh2 (`my-ssh`)               | `flurl`, `my-grpc-extensions`, `my-no-sql-sdk`, `my-postgres`        |
+| `with-ssh`          | russh + aws-lc-rs (`my-ssh`)     | `flurl`, `my-grpc-extensions`, `my-no-sql-sdk`, `my-postgres`        |
 
 ### Picking a crypto provider
 
@@ -170,11 +170,12 @@ Postgres TLS is unrelated to this choice: it speaks openssl, not rustls, so
 target is not enabled - enabling `with-postgres-tls` without `postgres` does not
 pull postgres in.
 
-**Watch out:** without `with-ring-tls`, fl-url has no TLS stack linked, and it
-`panic!`s at request time on any `https://` url. The always-on parts of the SDK
-go through fl-url - the Seq logger, the telemetry writer and the http settings
-reader - so if any of those endpoints is `https://`, `with-ring-tls` is
-mandatory. Turn it on whenever the service talks to anything over https.
+**Watch out:** without `with-ring-tls`, fl-url has no TLS stack linked, and a
+request to any `https://` url fails with `FlUrlError::UnsupportedScheme`. The
+always-on parts of the SDK go through fl-url - the Seq logger, the telemetry
+writer and the http settings reader - so if any of those endpoints is
+`https://`, `with-ring-tls` is mandatory. Turn it on whenever the service talks
+to anything over https.
 
 # Metrics
 
@@ -264,7 +265,7 @@ service_context.register_sb_subscribe(
 );
 ```
 
-`get_sb_publisher(do_retries)` — pass `true` to wrap the publisher with retry logic, `false` for fire-and-forget.
+`get_sb_publisher(do_retries)` — pass `true` to have a publish which failed because the connection is down repeated once the connection is restored, `false` to get the error back without a retry. Either way `publish` waits for the server to confirm the message; fire-and-forget is `publish_and_forget` of `PublisherWithInternalQueue`.
 
 ```rust, no_run
 let service_context = ServiceContext::new(settings_reader).await;
@@ -338,7 +339,7 @@ let service_context = ServiceContext::new(settings_reader).await;
 let ns_reader: Arc<MyNoSqlDataReaderTcp<MyModel>> = service_context.get_ns_reader();
 ```
 
-`start_application` starts the MyNoSql connection first and waits until every reader handed out by `get_ns_reader` has received its first snapshot. Only then is the app marked as initialized and everything else started — background timers, the service bus client, the HTTP and gRPC servers. So no request, message or timer tick ever runs against a table that is not loaded yet, and a request handler, a subscriber or a timer tick has no need to call `wait_until_first_data_arrives()` itself.
+`start_application` starts the MyNoSql connection first and waits until every reader handed out by `get_ns_reader` has received its first snapshot. Only then is the app marked as initialized and everything else started — background timers, the queues, events loops and background executors created on the `ServiceContext`, the service bus client, the HTTP and gRPC servers. So no request, message or timer tick, and no handler of those queues, events loops and background executors, ever runs against a table that is not loaded yet, and a request handler, a subscriber, a timer tick or one of those handlers has no need to call `wait_until_first_data_arrives()` itself.
 
 Things to know about that wait:
 
@@ -346,6 +347,7 @@ Things to know about that wait:
 - It has no timeout. Every 5 seconds the reason the application has not started yet is printed to the console, with the table still being waited for: `MyNoSql readers are not initialized: table '<table>' has no data yet - start of application is delayed`.
 - An empty or not yet created table does not block the start — the server answers the subscription with an empty snapshot.
 - Only readers obtained through `get_ns_reader` are waited for. A reader taken directly from `service_context.my_no_sql_connection` is not.
+- A cache you fill from a reader callback is not covered either. The wait ends when the reader's own copy of the table is loaded; the callbacks registered with `assign_callback` are delivered after that, one at a time, from the reader's own events loop. So the first request, message or timer tick can run before such a cache is filled — the reader itself is loaded by then, so read from the reader until the cache is.
 - Code you start yourself is not covered. A task spawned before `start_application` runs alongside the wait, and a run-once tool that starts `my_no_sql_connection` on its own never goes through it — both still have to call `wait_until_first_data_arrives()` before the first read.
 - `start_application` returns only on shutdown, so "after the wait" means inside a handler, a subscriber or a timer tick — not on the line after `start_application().await`.
 
@@ -392,6 +394,8 @@ service_context.register_exact_timer(ExactTimerInterval::Every5Seconds, |timer| 
 # Queues, events loops and background executors
 
 The building blocks of `rust_extensions` which implement `Startable` are created on the `ServiceContext`. It wires them to the SDK logger (and to the application states, where one is needed), gives back an `Arc` to keep in your `AppContext`, and starts them in `start_application` — right after the app is marked as initialized, before the service bus client and the HTTP and gRPC servers. With the `my-nosql-data-reader-sdk` feature that is after the MyNoSql readers got their first data — see [NoSql](#nosql) — so a handler never sees an unloaded table.
+
+The `rust-extensions` README builds these components with `new(...)` and starts them by hand with `start()` — that is the library used on its own. In a service built on this SDK they come from the `ServiceContext` and are started by `start_application`, never by hand.
 
 | Method                                                             | Returns                                              | Handler is registered with |
 |--------------------------------------------------------------------|------------------------------------------------------|----------------------------|

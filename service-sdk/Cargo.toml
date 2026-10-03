@@ -29,7 +29,7 @@ macros = [
     "my-grpc-extensions?/grpc-client",
 ]
 
-# Links the SSH stack (my-ssh / libssh2 / openssl-sys). Without it no ssh crate
+# Links the SSH stack (my-ssh / russh / aws-lc-sys). Without it no ssh crate
 # is in the tree at all. Propagated to every dependency that can pull one in.
 with-ssh = [
     "flurl/with-ssh",
@@ -65,7 +65,7 @@ grpc = ["dep:futures-core", "dep:my-grpc-extensions", "service-sdk-macros/grpc"]
 #
 # With neither, no rustls / webpki / ring / rcgen / graviola crate is in the tree
 # at all, `ServiceContext` installs no crypto provider, and an `https://` request
-# through fl-url panics at execute time.
+# through fl-url fails with `FlUrlError::UnsupportedScheme`.
 #
 # Postgres TLS is a different stack entirely (openssl) - see `with-postgres-tls`.
 # ---------------------------------------------------------------------------
