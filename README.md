@@ -119,7 +119,7 @@ Opt-in features add capabilities on top:
 | `my-nosql-sdk`                | NoSql entity macros only (no I/O)                                                        | —                                                                         |
 | `my-nosql-data-reader-sdk`    | `get_ns_reader` returning `Arc<MyNoSqlDataReaderTcp<T>>`                                 | `MyNoSqlTcpConnectionSettings` (auto-derived as `my_no_sql_tcp_reader`)    |
 | `my-nosql-data-writer-sdk`    | Enables `my-no-sql-sdk/data-writer` (use `MyNoSqlDataWriter<T>` directly from `my-no-sql-sdk`) | `MyNoSqlWriterSettings` (auto-derived as `my_no_sql_writer`)               |
-| `grpc`                        | `configure_grpc_server` + gRPC client/server macros                                      | —                                                                         |
+| `grpc`                        | `configure_grpc_server`; together with `macros` also the gRPC server and client macros (`generate_server!`, `#[generate_grpc_client]`). my-grpc-extensions comes with `with-telemetry`, so generated client methods take a `&MyTelemetryContext` | —                                                                         |
 | `postgres`                    | `my-postgres` integration                                                                | `PostgresSettings` (auto-derived as `postgres_conn_string`)                |
 | `with-ring-tls`               | rustls TLS with the **ring** crypto provider. Links `rustls`/`my-tls` and installs the provider. Required for `https://` through fl-url, TLS gRPC and other TLS-bearing transports. Mature and widely deployed, at the cost of a bundled C/assembly build. | — |
 | `with-rust-tls`               | The same TLS, with the **pure-Rust** provider (`rustls-graviola`) - no C toolchain anywhere. Builds only on x86_64/aarch64 and is far less deployed than ring, so prefer `with-ring-tls` unless dropping the C toolchain is the point. | — |
@@ -282,6 +282,8 @@ let sb_publisher: PublisherWithInternalQueue<Model> = service_context.get_sb_pub
 
 `use_grpc_client!()` pulls in everything `#[generate_grpc_client]` expands to. Urls are resolved through `GrpcClientSettings::get_grpc_url(name)`.
 
+service-sdk turns on `with-telemetry` of my-grpc-extensions, so every generated client method takes a `&MyTelemetryContext` as its second argument (`service_sdk::my_telemetry::MyTelemetryContext`; `use_grpc_client!()` brings `my_telemetry` into scope). Where there is no context to pass on — an admin call, a timer tick — pass `&MyTelemetryContext::Empty`.
+
 ```rust, no_run
 service_sdk::macros::use_grpc_client!();
 
@@ -324,13 +326,51 @@ pool.gc(&["shard-1", "shard-2"]).await;             // every other id is dropped
 
 # GRPC Server
 
-`configure_grpc_server` — register one or more gRPC server implementations on the SDK-managed gRPC server.
+The gRPC server is started by `start_application` on port `8888` (the `GRPC_PORT` env var or `update_listen_endpoint` on the builder change it), and with `UNIX_SOCKET` on a unix socket too (see [Unix socket](#unix-socket)). Register the service implementations with `configure_grpc_server`, before `start_application`:
+
 ```rust, no_run
 let mut service_context = ServiceContext::new(settings_reader).await;
 service_context.configure_grpc_server(|builder| {
-    builder.add_grpc_service(MyCoolGrpcService::new());
+    builder.add_grpc_service(UsersServer::new(SdkGrpcService::new(app.clone())));
 });
 ```
+
+With `grpc` and `macros` the server is generated from the proto by `generate_server!` of my-grpc-extensions. In a service it is wired like this:
+
+```rust, no_run
+// src/grpc_server/mod.rs
+mod users_grpc_server;
+
+// `SdkGrpcService { pub app: Arc<AppContext> }` with `new(app)` - the struct
+// `generate_server!` implements the service for and hands `app` to every handler.
+service_sdk::macros::generate_grpc_service!(crate::app::AppContext);
+```
+
+```rust, no_run
+// src/grpc_server/users_grpc_server.rs
+use std::sync::Arc;
+
+use crate::app::AppContext;
+
+// generate_server!, tonic, futures_core, my_telemetry and my_grpc_extensions - all from service_sdk
+service_sdk::macros::use_grpc_server!();
+
+generate_server!(
+    proto_file: "./proto/Users.proto",
+    crate_ns: "crate::users_grpc",
+    with_telemetry: true
+);
+
+async fn get_user(
+    app: &Arc<AppContext>,
+    request: GetUserRequest,
+    ctx: &my_telemetry::MyTelemetryContext,
+) -> UserGrpcModel {
+    crate::flows::get_user(app, request.id, ctx).await
+}
+```
+
+Because `use_grpc_server!()` takes `tonic`, `futures_core`, `my_telemetry` and `my_grpc_extensions` from `service_sdk`, the generated server needs no dependencies of its own on them. The code tonic generates from the proto (`tonic::include_proto!`) still needs the usual `tonic`, `prost`, `tonic-prost` and, to build it, `tonic-prost-build`. The proto must declare `rpc Ping(google.protobuf.Empty) returns (google.protobuf.Empty);` - `generate_server!` implements it. Handlers for streams, errors (`with_error`) and what is written to telemetry are described in the my-grpc-extensions README.
 
 # NoSql
 `get_ns_reader` is synchronous — it returns the reader handle immediately; the underlying TCP connection is started later by `start_application`.
@@ -447,6 +487,45 @@ let events_loop: Arc<EventsLoop<MyModel>> = service_context.register_startable(
     .set_iteration_timeout(Duration::from_secs(5)),
 );
 ```
+
+# HTTP Server
+
+The HTTP server is created and started by `start_application`: it listens on `0.0.0.0:8000` (`update_listen_endpoint(ip, port)` on the builder moves it) and with `UNIX_SOCKET` on a unix socket too (see [Unix socket](#unix-socket)). `/api/isalive` is always served, `/metrics` with `with-prometheus-metrics`, and Swagger UI at `/swagger` as soon as one action is registered. So a service has no `start_up.rs` and never creates `MyHttpServer`, `ControllersMiddleware` or `SwaggerMiddleware` itself.
+
+Actions are registered on the `HttpServerBuilder` handed to `configure_http_server`, before `start_application`:
+
+```rust, no_run
+// main.rs
+service_context.configure_http_server(|http| {
+    crate::http_server::build_controllers(&app, http);
+});
+
+service_context.start_application().await;
+```
+
+```rust, no_run
+// src/http_server/build_controllers.rs
+use std::sync::Arc;
+
+use service_sdk::HttpServerBuilder;
+
+use crate::app::AppContext;
+
+pub fn build_controllers(app: &Arc<AppContext>, http: &mut HttpServerBuilder) {
+    http.register_get_action(super::controllers::users::GetUserAction::new(app.clone()));
+    http.register_post_action(super::controllers::users::CreateUserAction::new(app.clone()));
+}
+```
+
+- An action is passed by value - no `Arc::new`; `#[http_route]` already makes it `Clone`.
+- In an action file `service_sdk::macros::use_my_http_server!();` brings in `my_http_server` with its macros (`http_route`, `MyHttpInput`, `MyHttpObjectStructure`, ...) and types, and `async_trait`. It takes the place of the `use my_http_server::...` lines in the my-http-server examples.
+- The derives `MyHttpInput` and `MyHttpObjectStructure` expand to `my_http_utils::...` paths, so the crate with the models needs `my-http-utils` as a direct dependency, on the tag my-http-server uses:
+
+```toml
+my-http-utils = { tag = "0.1.0", git = "https://github.com/MyJetTools/my-http-utils.git" }
+```
+
+How to write the actions themselves - routes, input and output models, errors - is in `HTTP_ACTIONS_DESIGN.md` of my-http-server.
 
 # HTTP server protocol
 
