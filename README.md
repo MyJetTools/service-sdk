@@ -121,8 +121,8 @@ Opt-in features add capabilities on top:
 | `my-nosql-data-writer-sdk`    | Enables `my-no-sql-sdk/data-writer` (use `MyNoSqlDataWriter<T>` directly from `my-no-sql-sdk`) | `MyNoSqlWriterSettings` (auto-derived as `my_no_sql_writer`)               |
 | `grpc`                        | `configure_grpc_server`; together with `macros` also the gRPC server and client macros (`generate_server!`, `#[generate_grpc_client]`). my-grpc-extensions comes with `with-telemetry`, so generated client methods take a `&MyTelemetryContext` | —                                                                         |
 | `postgres`                    | `my-postgres` integration                                                                | `PostgresSettings` (auto-derived as `postgres_conn_string`)                |
-| `with-ring-tls`               | rustls TLS with the **ring** crypto provider. Links `rustls`/`my-tls` and installs the provider. Required for `https://` through fl-url, TLS gRPC and other TLS-bearing transports. Mature and widely deployed, at the cost of a bundled C/assembly build. | — |
-| `with-rust-tls`               | The same TLS, with the **pure-Rust** provider (`rustls-graviola`) - no C toolchain anywhere. Builds only on x86_64/aarch64 and is far less deployed than ring, so prefer `with-ring-tls` unless dropping the C toolchain is the point. | — |
+| `with-ring-tls`               | rustls TLS with the **ring** crypto provider. Links `rustls`/`my-tls` and installs the provider. This or `with-rust-tls` is required for `https://` through fl-url, TLS gRPC and other TLS-bearing transports. Mature and widely deployed, at the cost of a bundled C/assembly build. | — |
+| `with-rust-tls`               | The same TLS, with the **pure-Rust** provider (`rustls-graviola`) - no C toolchain anywhere. Builds only on x86_64/aarch64 and is far less deployed than ring. No TLS, `with-ring-tls` or `with-rust-tls` is one decision for the whole service, and the user makes it - see [TLS is one decision for the whole service](#tls-is-one-decision-for-the-whole-service). | — |
 | `with-postgres-tls`           | TLS for postgres (`my-postgres/with-tls`, openssl-based - a separate stack from `with-ring-tls`). No-op unless `postgres` is on too. | — |
 | `with-ssh`                    | SSH tunnels for gRPC, fl-url, my-no-sql and postgres. Without it no `my-ssh`/`russh`/`aws-lc-sys` crate is compiled in at all. | — |
 | `with-prometheus-metrics`     | Prometheus metrics: the `/metrics` endpoint, HTTP/gRPC request metrics, the `EventsPerSecond` timer and the `service_sdk::metrics` re-export. Without it nothing is reported to prometheus and no `metrics`/`metrics-prometheus`/`prometheus` crate is compiled in at all. | — |
@@ -152,10 +152,25 @@ The switches are independent because they are genuinely different stacks:
 | `with-postgres-tls` | openssl (`postgres-openssl`)     | `my-postgres`                                                       |
 | `with-ssh`          | russh + aws-lc-rs (`my-ssh`)     | `flurl`, `my-grpc-extensions`, `my-no-sql-sdk`, `my-postgres`        |
 
-### Picking a crypto provider
+### TLS is one decision for the whole service
+
+Whether a service speaks TLS, and through which provider, is decided once for
+the whole service, on service-sdk. There are three answers:
+
+| Decision         | Features        | Trade-off                                                                                     |
+| ---------------- | --------------- | --------------------------------------------------------------------------------------------- |
+| No TLS           | neither         | every url the service talks to has to be plain `http://` - see **Watch out** below             |
+| TLS on ring      | `with-ring-tls` | mature and widely deployed, at the cost of a bundled C/assembly build (a C toolchain)          |
+| TLS on pure Rust | `with-rust-tls` | no C toolchain anywhere, but builds only on x86_64/aarch64 and is far less deployed than ring |
+
+None of them is a default. When you set up a service, or add TLS to one, ask
+the user which of the three it is to be.
 
 `with-ring-tls` and `with-rust-tls` are alternatives, not a stack: both give the
-same TLS functionality and differ only in the rustls `CryptoProvider`. Pick one.
+same TLS functionality and differ only in the rustls `CryptoProvider`. Either one
+turns TLS on for the whole service - in fl-url and my-grpc-extensions, and in the
+provider `ServiceContext::new` installs for the process - so TLS is never turned
+on per library.
 
 Enabling both is allowed rather than a build error - `--all-features` does
 exactly that - and `my-tls` resolves it in favour of ring, so the more
@@ -170,12 +185,12 @@ Postgres TLS is unrelated to this choice: it speaks openssl, not rustls, so
 target is not enabled - enabling `with-postgres-tls` without `postgres` does not
 pull postgres in.
 
-**Watch out:** without `with-ring-tls`, fl-url has no TLS stack linked, and a
-request to any `https://` url fails with `FlUrlError::UnsupportedScheme`. The
-always-on parts of the SDK go through fl-url - the Seq logger, the telemetry
-writer and the http settings reader - so if any of those endpoints is
-`https://`, `with-ring-tls` is mandatory. Turn it on whenever the service talks
-to anything over https.
+**Watch out:** "no TLS" means no `https://` at all. Without `with-ring-tls` or
+`with-rust-tls` fl-url has no TLS stack linked, and a request to any `https://`
+url fails with `FlUrlError::UnsupportedScheme`. The always-on parts of the SDK
+go through fl-url - the Seq logger, the telemetry writer and the http settings
+reader - so if any of those endpoints is `https://`, the service needs TLS: one
+of the two features, the one the user picked.
 
 # Metrics
 

@@ -57,7 +57,9 @@ websockets = ["my-http-server/websocket"]
 grpc = ["dep:futures-core", "dep:my-grpc-extensions", "service-sdk-macros/grpc"]
 
 # ---------------------------------------------------------------------------
-# rustls TLS. Pick exactly one of the two provider features below.
+# rustls TLS - one decision for the whole service: no TLS (neither feature) or
+# exactly one of the two provider features below. Neither is a default - the user
+# picks.
 #
 # Both link the same TLS stack (my-tls / rustls) and enable the same
 # functionality - `https://` through fl-url, TLS gRPC, client certificates. They
@@ -70,9 +72,8 @@ grpc = ["dep:futures-core", "dep:my-grpc-extensions", "service-sdk-macros/grpc"]
 # Postgres TLS is a different stack entirely (openssl) - see `with-postgres-tls`.
 # ---------------------------------------------------------------------------
 
-# ring. The default recommendation: mature and very widely deployed. Costs a
-# bundled C/assembly build, so a C toolchain is required. No aws-lc-sys either
-# way.
+# ring: mature and very widely deployed. Costs a bundled C/assembly build, so a
+# C toolchain is required. No aws-lc-sys either way.
 with-ring-tls = [
     "dep:my-tls",
     "my-tls/with-ring-crypto-providers",
@@ -83,8 +84,7 @@ with-ring-tls = [
 # Pure Rust, via rustls-graviola - no C toolchain anywhere, no build script.
 # Trade-offs vs ring: graviola builds ONLY on x86_64 and aarch64 (a hard
 # `compile_error!` on any other target) and is a far younger, much less deployed
-# crypto implementation. Prefer `with-ring-tls` unless getting rid of the C
-# toolchain is the point.
+# crypto implementation.
 #
 # Enabling both - which `--all-features` does - is not an error: my-tls resolves
 # the conflict in favour of ring, so the more battle-tested provider wins.
