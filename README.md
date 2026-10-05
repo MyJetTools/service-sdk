@@ -540,7 +540,7 @@ pub fn build_controllers(app: &Arc<AppContext>, http: &mut HttpServerBuilder) {
 my-http-utils = { tag = "0.1.0", git = "https://github.com/MyJetTools/my-http-utils.git" }
 ```
 
-How to write the actions themselves - routes, input and output models, errors - is in `HTTP_ACTIONS_DESIGN.md` of my-http-server.
+How to write the actions themselves - routes, input and output models, errors - is in [`docs/http-actions/`](https://github.com/MyJetTools/my-http-server/tree/main/docs/http-actions) of my-http-server (`get_http_actions_design_guide`).
 
 # HTTP server protocol
 
