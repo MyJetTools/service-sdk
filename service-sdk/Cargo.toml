@@ -185,7 +185,7 @@ my-settings-reader = { tag = "0.5.0", git = "https://github.com/MyJetTools/my-se
     "background-reader",
 ] }
 
-flurl = { tag = "0.7.0", git = "https://github.com/MyJetTools/fl-url.git", default-features = false }
+flurl = { tag = "0.7.0", git = "https://github.com/my-jet-tools/fl-url.git", default-features = false }
 serde_yaml = { version = "*" }
 
 # Only for `install_default_crypto_providers()` in `service_context.rs`. We
